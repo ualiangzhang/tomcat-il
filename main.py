@@ -13,7 +13,7 @@ from tensorboardX import SummaryWriter
 import gym_minigrid
 import sys
 import warnings
-from utils.utils import gen_training_and_test_sets as gen_training_and_test_sets
+from utils.utils import gen_training_and_test_sets, gen_batch,gen_history_sequence
 
 if not sys.warnoptions:
     warnings.simplefilter("ignore")
@@ -74,17 +74,24 @@ def main():
     else:
         demos_name += 'o_'
 
-    demos_name += 'demos.p'
+    demos_name += 'demos'
+    demos_file = demos_name + '.p'
 
-    expert_demo = pickle.load(open('./expert_demos/' + demos_name, "rb"))
+    expert_demo = pickle.load(open('./expert_demos/' + demos_file, "rb"))
     training_set, test_set, demo_idx_list, num_demos = gen_training_and_test_sets(expert_demo, args.test_set_ratio)
+
+    history_batches, state_batches, action_labels, reward_labels = gen_batch(training_set, 32, demo_idx_list)
+    past_traj = gen_history_sequence(training_set)
 
     print('training set number: ' + str(len(training_set['states'])))
     print('test set number: ' + str(len(test_set['states'])))
-    saved_file_name = './expert_demo/' + demos_name + '_training.p'
+    # save the generated training and test sets and the observation index list of training set
+    saved_file_name = './expert_demos/' + demos_name + '_training.p'
     pickle.dump(training_set, open(saved_file_name, "wb"))
-    saved_file_name = './expert_demo/' + demos_name + '_test.p'
+    saved_file_name = './expert_demos/' + demos_name + '_test.p'
     pickle.dump(test_set, open(saved_file_name, "wb"))
+    saved_file_name = './expert_demos/' + demos_name + '_index_list.p'
+    pickle.dump(demo_idx_list, open(saved_file_name, "wb"))
 
     demonstrations = []
     for demo in training_set:

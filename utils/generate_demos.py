@@ -33,10 +33,10 @@ def collect_demos(demonstrations, actions, difficulty, episode_reward):
     minigrid_episode_reward = 0
 
     for action in actions:
-        demo = np.zeros((len(obs) + 1), dtype='uint8')
-        demo[:-1] = obs
-        demo[-1] = action  # encode (the action + 200) into the last item of observation
-        epi_states.append(demo)
+        # demo = np.zeros((len(obs)), dtype='uint8')
+        # demo = obs
+        # demo[-1] = action  # encode (the action + 200) into the last item of observation
+        epi_states.append(obs)
         epi_actions.append(action)
         obs, reward, done, _ = env.step(action)
         action_num += 1
