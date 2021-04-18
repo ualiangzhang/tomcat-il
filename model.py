@@ -1,45 +1,74 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
 
 
-class LSTMDQN(nn.Module):
-    def __init__(self, n_action):
-        super(LSTMDQN, self).__init__()
-        self.n_action = n_action
+class ToMnet(nn.Module):
+    def __init__(self, num_inputs=44, num_outputs=6, hidden_size=128):
+        super(ToMnet, self).__init__()
+        self.hidden_size = hidden_size
 
-        self.conv1 = nn.Conv2d(4, 32, kernel_size=8, stride=1, padding=1)  # (In Channel, Out Channel, ...)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=5, stride=1, padding=1)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
-        self.conv4 = nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1)
+        # char net settings
+        self.char_embedding1 = nn.Linear(num_inputs, hidden_size)
+        self.char_bn1 = nn.BatchNorm1d(hidden_size)
+        self.char_embedding2 = nn.Linear(hidden_size, hidden_size)
+        self.char_bn2 = nn.BatchNorm1d(hidden_size)
 
-        self.lstm = nn.LSTM(16, LSTM_MEMORY, 1)  # (Input, Hidden, Num Layers)
+        self.char_lstm = nn.LSTM(hidden_size, hidden_size)
+        self.char_pooling = nn.AvgPool1d(3, stride=1, padding=1)
+        self.char_output = nn.Linear(hidden_size, hidden_size)
 
-        self.affine1 = nn.Linear(LSTM_MEMORY * 64, 512)
-        # self.affine2 = nn.Linear(2048, 512)
-        self.affine2 = nn.Linear(512, self.n_action)
+        # mental net settings
+        self.mental_embedding1 = nn.Linear(num_inputs, hidden_size)
+        self.mental_bn1 = nn.BatchNorm1d(hidden_size)
+        self.mental_embedding2 = nn.Linear(hidden_size, hidden_size)
+        self.mental_bn2 = nn.BatchNorm1d(hidden_size)
 
-    def forward(self, x, hidden_state, cell_state):
-        # CNN
-        h = F.relu(F.max_pool2d(self.conv1(x), kernel_size=2, stride=2))
-        h = F.relu(F.max_pool2d(self.conv2(h), kernel_size=2, stride=2))
-        h = F.relu(F.max_pool2d(self.conv3(h), kernel_size=2, stride=2))
-        h = F.relu(F.max_pool2d(self.conv4(h), kernel_size=2, stride=2))
+        self.mental_lstm = nn.LSTM(hidden_size, hidden_size)
+        self.mental_output = nn.Linear(hidden_size, hidden_size)
 
-        # LSTM
-        h = h.view(h.size(0), h.size(1), 16)  # (32, 64, 4, 4) -> (32, 64, 16)
-        h, (next_hidden_state, next_cell_state) = self.lstm(h, (hidden_state, cell_state))
-        h = h.view(h.size(0), -1)  # (32, 64, 256) -> (32, 16348)
+        # prediction net settings
+        self.prediction_embedding1 = nn.Linear(num_inputs - 1, hidden_size)
+        self.prediction_bn = nn.BatchNorm1d(hidden_size)
+        self.prediction_embedding2 = nn.Linear(hidden_size, hidden_size)
 
-        # Fully Connected Layers
-        h = F.relu(self.affine1(h.view(h.size(0), -1)))
-        # h = F.relu(self.affine2(h.view(h.size(0), -1)))
-        h = self.affine2(h)
-        return h, next_hidden_state, next_cell_state
+        self.feature_extractor1 = nn.Linear(3 * hidden_size, hidden_size)
+        self.fe_bn1 = nn.BatchNorm1d(hidden_size)
+        self.feature_extractor2 = nn.Linear(hidden_size, hidden_size)
+        self.fe_bn2 = nn.BatchNorm1d(hidden_size)
+        self.fe_pooling = nn.AvgPool1d(3, stride=1, padding=1)
 
-    def init_states(self) -> [Variable, Variable]:
-        hidden_state = Variable(torch.zeros(1, 64, LSTM_MEMORY).cuda())
-        cell_state = Variable(torch.zeros(1, 64, LSTM_MEMORY).cuda())
-        return hidden_state, cell_state
+        self.policy_output = nn.Linear(hidden_size, num_outputs)
+        self.reward_output = nn.Linear(hidden_size, 1)
 
-    def reset_states(self, hidden_state, cell_state):
-        hidden_state[:, :, :] = 0
-        cell_state[:, :, :] = 0
-        return hidden_state.detach(), cell_state.detach()
+    def forward(self, past_traj, pre_traj, state, len_past_traj, len_pre_traj):
+        x = torch.reshape(past_traj, [-1, past_traj.shape[-1]]).float()
+        x = F.relu(self.char_bn1(self.char_embedding1(x)))
+        x = F.relu(self.char_bn2(self.char_embedding2(x)))
+        x = torch.reshape(x, [-1, past_traj.shape[0], x.shape[-1]])
+        _, (x, _) = self.char_lstm(x)
+        x = self.char_output(self.char_pooling(x))
+        x = torch.mean(x, dim=0)
+        e_char = torch.cat(state.shape[0] * [x])
+
+        x = torch.reshape(pre_traj, [-1, pre_traj.shape[-1]]).float()
+        x = F.relu(self.mental_bn1(self.mental_embedding1(x)))
+        x = F.relu(self.mental_bn2(self.mental_embedding2(x)))
+        x = torch.reshape(x, [-1, pre_traj.shape[0], x.shape[-1]])
+        _, (x, _) = self.mental_lstm(x)
+        e_mental = self.mental_output(torch.squeeze(x, 0))
+
+        x = state.float()
+        x = F.relu(self.prediction_bn(self.prediction_embedding1(x)))
+        e_state = self.prediction_embedding2(x)
+
+        concatenated_state = torch.cat((e_char, e_mental, e_state), 1)
+
+        x = F.relu(self.fe_bn1(self.feature_extractor1(concatenated_state)))
+        x = F.relu(self.fe_bn2(self.feature_extractor2(x)))
+        x = self.fe_pooling(torch.unsqueeze(x, 0))
+        policy_logits = self.policy_output(torch.squeeze(x, 0))
+        # policy = torch.softmax(policy)
+        reward = self.reward_output(torch.squeeze(x, 0))
+
+        return policy_logits, reward

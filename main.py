@@ -13,7 +13,11 @@ from tensorboardX import SummaryWriter
 import gym_minigrid
 import sys
 import warnings
-from utils.utils import gen_training_and_test_sets, gen_batch,gen_history_sequence
+from utils.utils import gen_training_and_test_sets, gen_training_batch, gen_eval_batch, gen_history_sequence, epoch_time
+import torch.optim as optim
+import torch.nn as nn
+import time
+from model import ToMnet
 
 if not sys.warnoptions:
     warnings.simplefilter("ignore")
@@ -80,8 +84,38 @@ def main():
     expert_demo = pickle.load(open('./expert_demos/' + demos_file, "rb"))
     training_set, test_set, demo_idx_list, num_demos = gen_training_and_test_sets(expert_demo, args.test_set_ratio)
 
-    history_batches, state_batches, action_labels, reward_labels = gen_batch(training_set, 32, demo_idx_list)
-    past_traj = gen_history_sequence(training_set)
+    eval_pre_traj_batches, eval_state_batches, eval_action_labels, eval_reward_labels, eval_len_pre_traj = gen_eval_batch(
+        test_set, args.batch_size)
+    past_traj, len_past_traj = gen_history_sequence(training_set)
+
+    model = ToMnet().to(args.device)
+
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    action_criterion = nn.CrossEntropyLoss()
+    reward_criterion = nn.MSELoss()
+
+    for epoch in range(args.total_epochs):
+        start_time = time.time()
+        pre_traj_batches, state_batches, action_labels, reward_labels, len_pre_traj = gen_training_batch(training_set,
+                                                                                                       args.batch_size,
+                                                                                                       demo_idx_list)
+
+        train_loss, train_acc = train(model, state_batches, pre_traj_batches, past_traj, action_labels, reward_labels,
+                                      len_past_traj, len_pre_traj, optimizer, action_criterion, reward_criterion)
+
+        valid_loss, valid_acc = evaluate(model, valid_iterator, criterion)
+
+        end_time = time.time()
+
+        epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+
+        if valid_loss < best_valid_loss:
+            best_valid_loss = valid_loss
+            torch.save(model.state_dict(), 'tut2-model.pt')
+
+        print(f'Epoch: {epoch + 1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
+        print(f'\tTrain Loss: {train_loss:.3f} | Train Acc: {train_acc * 100:.2f}%')
+        print(f'\t Val. Loss: {valid_loss:.3f} |  Val. Acc: {valid_acc * 100:.2f}%')
 
     print('training set number: ' + str(len(training_set['states'])))
     print('test set number: ' + str(len(test_set['states'])))
@@ -159,7 +193,6 @@ def main():
                 # else:
                 #     print('duplicates!')
 
-
                 if args.zfilter:
                     next_state = running_state(next_state)
 
@@ -190,7 +223,8 @@ def main():
 
         #  train discriminator
         if iteration_times > args.discrim_leanring_starts and iteration_times % args.discrim_training_frequency == 0:
-            expert_acc, learner_acc, well_trained = train_discrim(discrim, replay_buffer, discrim_optim, demonstrations, args)
+            expert_acc, learner_acc, well_trained = train_discrim(discrim, replay_buffer, discrim_optim, demonstrations,
+                                                                  args)
             print("Expert: %.2f%% | Learner: %.2f%%" % (expert_acc * 100, learner_acc * 100))
 
         # if discriminator is well-trained, we decrease the training times for it to make the policy training stable
@@ -210,7 +244,8 @@ def main():
             if not os.path.isdir(model_path):
                 os.makedirs(model_path)
 
-            ckpt_path = os.path.join(model_path, args.level + '_' + args.strategy + '_ckpt_' + str(saved_times) + 'M.pth.tar')
+            ckpt_path = os.path.join(model_path,
+                                     args.level + '_' + args.strategy + '_ckpt_' + str(saved_times) + 'M.pth.tar')
 
             if args.zfilter:
                 save_checkpoint({
@@ -231,6 +266,48 @@ def main():
                     'args': args,
                     'score': score_avg
                 }, filename=ckpt_path)
+
+
+def train(model, state_batches, pre_traj, past_traj, action_labels, reward_labels, len_past_traj, len_pre_traj, optimizer,
+          action_criterion,
+          reward_criterion):
+    epoch_loss = 0
+    epoch_action_acc1 = 0
+    epoch_action_acc2 = 0
+    epoch_action_acc3 = 0
+    epoch_reward_acc = 0
+
+    len_batches = len(state_batches)
+
+    model.train()
+
+    for idx in range(len_batches):
+        t_past_traj_batches = torch.tensor(past_traj).to(args.device)
+        t_pre_traj_batches = torch.tensor(pre_traj[idx]).to(args.device)
+        t_state_batches = torch.tensor(state_batches[idx]).to(args.device)
+        t_len_past_traj = torch.tensor(len_past_traj).to(args.device)
+        t_len_pre_traj = torch.tensor(len_pre_traj[idx]).to(args.device)
+
+        optimizer.zero_grad()
+
+        action_predictions, reward_predictions = model(t_past_traj_batches, t_pre_traj_batches, t_state_batches,
+                                                       t_len_past_traj, t_len_pre_traj)
+
+        action_loss = action_criterion(action_predictions, action_labels[idx])
+        reward_loss = reward_criterion(reward_predictions, reward_labels[idx])
+
+        loss = action_loss + reward_loss
+
+        # acc = binary_accuracy(predictions, batch.label)
+
+        loss.backward()
+
+        optimizer.step()
+
+        epoch_loss += loss.item()
+        # epoch_acc += acc.item()
+
+    return epoch_loss / len_batches, epoch_action_acc1 / len_batches, epoch_action_acc2 / len_batches, epoch_action_acc3 / len_batches, epoch_reward_acc / len_batches
 
 
 if __name__ == "__main__":
