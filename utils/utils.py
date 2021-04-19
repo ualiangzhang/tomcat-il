@@ -73,7 +73,7 @@ def gen_training_batch(training_set, batch_size, index_list):
                     sub_state_batch.append(training_set['states'][il[0]][end_idx])
                     sub_action_labels.append(training_set['actions'][il[0]][end_idx])
                     sub_reward_labels.append(training_set['rewards'][il[0]])
-                    sub_num_states.append(end_idx - start_idx + 1)
+                    sub_num_states.append(end_idx - start_idx)
 
                 if len(sub_pre_states_batch) > batch_size - 1:
                     max_len_state = 0
@@ -155,7 +155,7 @@ def gen_eval_batch(test_set, batch_size):
                 sub_state_batch.append(test_set['states'][idx][end_idx])
                 sub_action_labels.append(test_set['actions'][idx][end_idx])
                 sub_reward_labels.append(test_set['rewards'][idx])
-                sub_num_states.append(end_idx - start_idx + 1)
+                sub_num_states.append(end_idx - start_idx)
 
             if len(sub_pre_states_batch) > batch_size - 1:
                 max_len_state = 0

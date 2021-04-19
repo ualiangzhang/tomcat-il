@@ -1,14 +1,10 @@
-import os
 import gym
 from gym_minigrid.wrappers import HumanFOVWrapper
 import pickle
 import argparse
 import numpy as np
-from collections import deque
 import random
 import torch
-import torch.optim as optim
-from tensorboardX import SummaryWriter
 
 import gym_minigrid
 import sys
@@ -18,6 +14,7 @@ import torch.optim as optim
 import torch.nn as nn
 import time
 from model import ToMnet
+import math
 
 if not sys.warnoptions:
     warnings.simplefilter("ignore")
@@ -84,39 +81,6 @@ def main():
     expert_demo = pickle.load(open('./expert_demos/' + demos_file, "rb"))
     training_set, test_set, demo_idx_list, num_demos = gen_training_and_test_sets(expert_demo, args.test_set_ratio)
 
-    eval_pre_traj_batches, eval_state_batches, eval_action_labels, eval_reward_labels, eval_len_pre_traj = gen_eval_batch(
-        test_set, args.batch_size)
-    past_traj, len_past_traj = gen_history_sequence(training_set)
-
-    model = ToMnet().to(args.device)
-
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
-    action_criterion = nn.CrossEntropyLoss()
-    reward_criterion = nn.MSELoss()
-
-    for epoch in range(args.total_epochs):
-        start_time = time.time()
-        pre_traj_batches, state_batches, action_labels, reward_labels, len_pre_traj = gen_training_batch(training_set,
-                                                                                                       args.batch_size,
-                                                                                                       demo_idx_list)
-
-        train_loss, train_acc = train(model, state_batches, pre_traj_batches, past_traj, action_labels, reward_labels,
-                                      len_past_traj, len_pre_traj, optimizer, action_criterion, reward_criterion)
-
-        valid_loss, valid_acc = evaluate(model, valid_iterator, criterion)
-
-        end_time = time.time()
-
-        epoch_mins, epoch_secs = epoch_time(start_time, end_time)
-
-        if valid_loss < best_valid_loss:
-            best_valid_loss = valid_loss
-            torch.save(model.state_dict(), 'tut2-model.pt')
-
-        print(f'Epoch: {epoch + 1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
-        print(f'\tTrain Loss: {train_loss:.3f} | Train Acc: {train_acc * 100:.2f}%')
-        print(f'\t Val. Loss: {valid_loss:.3f} |  Val. Acc: {valid_acc * 100:.2f}%')
-
     print('training set number: ' + str(len(training_set['states'])))
     print('test set number: ' + str(len(test_set['states'])))
     # save the generated training and test sets and the observation index list of training set
@@ -127,155 +91,96 @@ def main():
     saved_file_name = './expert_demos/' + demos_name + '_index_list.p'
     pickle.dump(demo_idx_list, open(saved_file_name, "wb"))
 
-    demonstrations = []
-    for demo in training_set:
-        for d in demo:
-            demonstrations.append(d)
-    demonstrations = np.array(demonstrations)
-    demonstrations_list = demonstrations.tolist()  # to check if state in demonstrations
-    print("demonstrations shape: ", demonstrations.shape)
+    eval_pre_traj_batches, eval_state_batches, eval_action_labels, eval_reward_labels, eval_len_pre_traj = gen_eval_batch(
+        test_set, args.batch_size)
+    past_traj, len_past_traj = gen_history_sequence(training_set)
 
-    # replay_buffer = deque(maxlen=demonstrations.shape[0])  # share the same size of demonstration
-    writer = SummaryWriter(args.logdir)
+    model = ToMnet().to(args.device)
 
-    if args.load_model is not None:
-        saved_ckpt_path = os.path.join(os.getcwd(), 'save_model', str(args.load_model))
-        ckpt = torch.load(saved_ckpt_path)
+    if args.load_model:
+        model.load_state_dict(torch.load(args.load_model))
 
-        actor.load_state_dict(ckpt['actor'])
-        critic.load_state_dict(ckpt['critic'])
-        discrim.load_state_dict(ckpt['discrim'])
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    action_criterion = nn.CrossEntropyLoss()
+    reward_criterion = nn.MSELoss()
 
-    episodes = 0
-    total_steps = 0
-    saved_times = 0
-    scores = deque(maxlen=100)
-    iteration_times = 0
-    state_counts = {}
+    best_eval_acc1 = 0
+    best_eval_acc2 = 0
+    best_eval_acc3 = 0
+    best_eval_reward_loss = math.inf
+    best_eval_loss = math.inf
 
-    while total_steps < args.max_total_steps + args.total_sample_size:
-        actor.eval(), critic.eval(), discrim.eval()
+    for epoch in range(args.total_epochs):
+        start_time = time.time()
+        pre_traj_batches, state_batches, action_labels, reward_labels, len_pre_traj = gen_training_batch(training_set,
+                                                                                                         args.batch_size,
+                                                                                                         demo_idx_list)
 
-        memory = deque()
-        steps = 0
-
-        while steps < args.total_sample_size:
-            state = env.reset()
-            score = 0
-
-            if args.zfilter:
-                state = running_state(state)
-
-            for _ in range(env.max_steps):
-                if args.render:
-                    env.render()
-
-                policy = actor(torch.Tensor(state / 255).unsqueeze(0).to(args.device))
-                action = get_action(policy)
-                next_state, reward, done, _ = env.step(action)
-                irl_reward = get_reward(discrim, state, action, args)
-
-                if done:
-                    mask = 0
-                else:
-                    mask = 1
-
-                if args.add_exploration_bonus:
-                    explore_bonus = get_exploration_bonus(state_counts, state, action)
-                    irl_reward += explore_bonus
-
-                memory.append([state, action, irl_reward, mask])
-                # check if state in demonstrations
-                # state_list = np.expand_dims(np.append(state, action).astype('uint8'), axis=0).tolist()
-                state_list = np.append(state, action).astype('uint8').tolist()
-                if state_list not in demonstrations_list:
-                    replay_buffer.append(np.append(state, action).astype('uint8'))
-                # else:
-                #     print('duplicates!')
-
-                if args.zfilter:
-                    next_state = running_state(next_state)
-
-                state = next_state
-                score += reward
-                steps += 1
-
-                if done:
-                    break
-
-            episodes += 1
-            scores.append(score)
-
-        score_avg = np.mean(scores)
-        total_steps += steps
-        iteration_times += 1
+        training_loss, training_acc1, training_acc2, training_acc3, training_reward_loss = train(model, state_batches,
+                                                                                                 pre_traj_batches,
+                                                                                                 past_traj,
+                                                                                                 action_labels,
+                                                                                                 reward_labels,
+                                                                                                 len_past_traj,
+                                                                                                 len_pre_traj,
+                                                                                                 optimizer,
+                                                                                                 action_criterion,
+                                                                                                 reward_criterion)
 
         print(
-            '{} steps :: {} episodes :: average score for 100 episodes is {:.2f}'.format(total_steps, episodes,
-                                                                                         score_avg))
-        writer.add_scalar('log/score', float(score_avg), total_steps)
+            '{} epochs :: training loss {:.2f} :: action top1 {:.2f} :: action top2 {:.2f}  :: action top3 {:.2f}  :: reward mse {:.2f}'.format(
+                epoch, training_loss, training_acc1, training_acc2, training_acc3, training_reward_loss))
 
-        actor.train(), critic.train(), discrim.train()
+        eval_loss, eval_acc1, eval_acc2, eval_acc3, eval_reward_loss = evaluate(model, eval_state_batches,
+                                                                                eval_pre_traj_batches,
+                                                                                past_traj,
+                                                                                eval_action_labels,
+                                                                                eval_reward_labels,
+                                                                                len_past_traj,
+                                                                                eval_len_pre_traj,
+                                                                                action_criterion,
+                                                                                reward_criterion)
 
-        # L = {array.tostring(): array for array in replay_buffer}
-        # L = L.values()
-        # L = list(L)
+        print(
+            '{} epochs :: eval loss {:.2f} :: action top1 {:.2f} :: action top2 {:.2f}  :: action top3 {:.2f}  :: reward mse {:.2f}'.format(
+                epoch, eval_loss, eval_acc1, eval_acc2, eval_acc3, eval_reward_loss))
 
-        #  train discriminator
-        if iteration_times > args.discrim_leanring_starts and iteration_times % args.discrim_training_frequency == 0:
-            expert_acc, learner_acc, well_trained = train_discrim(discrim, replay_buffer, discrim_optim, demonstrations,
-                                                                  args)
-            print("Expert: %.2f%% | Learner: %.2f%%" % (expert_acc * 100, learner_acc * 100))
+        end_time = time.time()
 
-        # if discriminator is well-trained, we decrease the training times for it to make the policy training stable
-        # if expert_acc > args.suspend_accu_exp and learner_acc > args.suspend_accu_gen and well_trained:
-        #     discrim_update_num = copy.deepcopy(args.discrim_update_num)
-        #     args.discrim_update_num = int(0.5 * discrim_update_num)
-        #     print('well trained discriminator')
+        epoch_mins, epoch_secs = epoch_time(start_time, end_time)
 
-        #  train actor and critic
-        train_actor_critic(actor, critic, memory, actor_optim, critic_optim, args)
+        if eval_acc1 > best_eval_acc1:
+            best_eval_acc1 = eval_acc1
+            torch.save(model.state_dict(), 'best-top1-model.pt')
 
-        if total_steps >= saved_times * args.save_frequency:
-            saved_times += 1
-            saved_steps = int(total_steps // args.save_frequency * args.save_frequency)
+        if eval_acc2 > best_eval_acc2:
+            best_eval_acc2 = eval_acc2
+            torch.save(model.state_dict(), 'best-top2-model.pt')
 
-            model_path = os.path.join(os.getcwd(), 'save_model')
-            if not os.path.isdir(model_path):
-                os.makedirs(model_path)
+        if eval_acc3 > best_eval_acc3:
+            best_eval_acc3 = eval_acc3
+            torch.save(model.state_dict(), 'best-top3-model.pt')
 
-            ckpt_path = os.path.join(model_path,
-                                     args.level + '_' + args.strategy + '_ckpt_' + str(saved_times) + 'M.pth.tar')
+        if eval_reward_loss < best_eval_reward_loss:
+            best_eval_reward_loss = eval_reward_loss
+            torch.save(model.state_dict(), 'best-reward-model.pt')
 
-            if args.zfilter:
-                save_checkpoint({
-                    'actor': actor.state_dict(),
-                    'critic': critic.state_dict(),
-                    'discrim': discrim.state_dict(),
-                    'z_filter_n': running_state.rs.n,
-                    'z_filter_m': running_state.rs.mean,
-                    'z_filter_s': running_state.rs.sum_square,
-                    'args': args,
-                    'score': score_avg
-                }, filename=ckpt_path)
-            else:
-                save_checkpoint({
-                    'actor': actor.state_dict(),
-                    'critic': critic.state_dict(),
-                    'discrim': discrim.state_dict(),
-                    'args': args,
-                    'score': score_avg
-                }, filename=ckpt_path)
+        if eval_loss < best_eval_loss:
+            best_eval_loss = eval_loss
+            torch.save(model.state_dict(), 'best-model.pt')
+
+        print(f'Epoch: {epoch + 1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
 
 
-def train(model, state_batches, pre_traj, past_traj, action_labels, reward_labels, len_past_traj, len_pre_traj, optimizer,
+def train(model, state_batches, pre_traj, past_traj, action_labels, reward_labels, len_past_traj, len_pre_traj,
+          optimizer,
           action_criterion,
           reward_criterion):
     epoch_loss = 0
+    epoch_reward_loss = 0
     epoch_action_acc1 = 0
     epoch_action_acc2 = 0
     epoch_action_acc3 = 0
-    epoch_reward_acc = 0
 
     len_batches = len(state_batches)
 
@@ -287,27 +192,88 @@ def train(model, state_batches, pre_traj, past_traj, action_labels, reward_label
         t_state_batches = torch.tensor(state_batches[idx]).to(args.device)
         t_len_past_traj = torch.tensor(len_past_traj).to(args.device)
         t_len_pre_traj = torch.tensor(len_pre_traj[idx]).to(args.device)
+        t_action_labels = torch.LongTensor(action_labels[idx]).to(args.device)
+        t_reward_labels = torch.Tensor(reward_labels[idx]).to(args.device)
 
         optimizer.zero_grad()
 
         action_predictions, reward_predictions = model(t_past_traj_batches, t_pre_traj_batches, t_state_batches,
                                                        t_len_past_traj, t_len_pre_traj)
 
-        action_loss = action_criterion(action_predictions, action_labels[idx])
-        reward_loss = reward_criterion(reward_predictions, reward_labels[idx])
+        action_loss = action_criterion(action_predictions, t_action_labels)
+        reward_loss = reward_criterion(reward_predictions, t_reward_labels)
 
         loss = action_loss + reward_loss
-
-        # acc = binary_accuracy(predictions, batch.label)
-
         loss.backward()
-
         optimizer.step()
 
         epoch_loss += loss.item()
-        # epoch_acc += acc.item()
+        epoch_reward_loss += reward_loss
+        acc1, acc2, acc3 = action_accuracy(action_predictions, t_action_labels)
+        epoch_action_acc1 += acc1
+        epoch_action_acc2 += acc2
+        epoch_action_acc3 += acc3
 
-    return epoch_loss / len_batches, epoch_action_acc1 / len_batches, epoch_action_acc2 / len_batches, epoch_action_acc3 / len_batches, epoch_reward_acc / len_batches
+    return epoch_loss / len_batches, epoch_action_acc1 / len_batches, epoch_action_acc2 / len_batches, epoch_action_acc3 / len_batches, epoch_reward_loss / len_batches
+
+
+def evaluate(model, state_batches, pre_traj, past_traj, action_labels, reward_labels, len_past_traj, len_pre_traj,
+             action_criterion,
+             reward_criterion):
+    epoch_loss = 0
+    epoch_reward_loss = 0
+    epoch_action_acc1 = 0
+    epoch_action_acc2 = 0
+    epoch_action_acc3 = 0
+
+    len_batches = len(state_batches)
+
+    model.eval()
+
+    with torch.no_grad():
+        for idx in range(len_batches):
+            t_past_traj_batches = torch.tensor(past_traj).to(args.device)
+            t_pre_traj_batches = torch.tensor(pre_traj[idx]).to(args.device)
+            t_state_batches = torch.tensor(state_batches[idx]).to(args.device)
+            t_len_past_traj = torch.tensor(len_past_traj).to(args.device)
+            t_len_pre_traj = torch.tensor(len_pre_traj[idx]).to(args.device)
+            t_action_labels = torch.LongTensor(action_labels[idx]).to(args.device)
+            t_reward_labels = torch.Tensor(reward_labels[idx]).to(args.device)
+
+            action_predictions, reward_predictions = model(t_past_traj_batches, t_pre_traj_batches, t_state_batches,
+                                                           t_len_past_traj, t_len_pre_traj)
+
+            action_loss = action_criterion(action_predictions, t_action_labels)
+            reward_loss = reward_criterion(reward_predictions, t_reward_labels)
+
+            loss = action_loss + reward_loss
+
+            epoch_loss += loss.item()
+            epoch_reward_loss += reward_loss
+            acc1, acc2, acc3 = action_accuracy(action_predictions, t_action_labels)
+            epoch_action_acc1 += acc1
+            epoch_action_acc2 += acc2
+            epoch_action_acc3 += acc3
+
+    return epoch_loss / len_batches, epoch_action_acc1 / len_batches, epoch_action_acc2 / len_batches, epoch_action_acc3 / len_batches, epoch_reward_loss / len_batches
+
+
+def action_accuracy(preds, y):
+    """
+    Returns accuracy per batch, i.e. if you get 8/10 right, this returns 0.8, NOT 8
+    """
+    top1 = torch.topk(preds, 1)[1]
+    top2 = torch.topk(preds, 2)[1]
+    top3 = torch.topk(preds, 3)[1]
+
+    correct1 = torch.eq(torch.unsqueeze(y, 1), top1).any(dim=1)
+    correct2 = torch.eq(torch.unsqueeze(y, 1), top2).any(dim=1)
+    correct3 = torch.eq(torch.unsqueeze(y, 1), top3).any(dim=1)
+
+    acc1 = correct1.sum() / len(correct1)
+    acc2 = correct2.sum() / len(correct2)
+    acc3 = correct3.sum() / len(correct3)
+    return acc1.item(), acc2.item(), acc3.item()
 
 
 if __name__ == "__main__":

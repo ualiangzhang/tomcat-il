@@ -46,6 +46,7 @@ class ToMnet(nn.Module):
         x = F.relu(self.char_bn1(self.char_embedding1(x)))
         x = F.relu(self.char_bn2(self.char_embedding2(x)))
         x = torch.reshape(x, [-1, past_traj.shape[0], x.shape[-1]])
+        x = nn.utils.rnn.pack_padded_sequence(x, len_past_traj.to('cpu'), enforce_sorted=False)
         _, (x, _) = self.char_lstm(x)
         x = self.char_output(self.char_pooling(x))
         x = torch.mean(x, dim=0)
@@ -55,6 +56,7 @@ class ToMnet(nn.Module):
         x = F.relu(self.mental_bn1(self.mental_embedding1(x)))
         x = F.relu(self.mental_bn2(self.mental_embedding2(x)))
         x = torch.reshape(x, [-1, pre_traj.shape[0], x.shape[-1]])
+        x = nn.utils.rnn.pack_padded_sequence(x, len_pre_traj.to('cpu')-1, enforce_sorted=False)
         _, (x, _) = self.mental_lstm(x)
         e_mental = self.mental_output(torch.squeeze(x, 0))
 
