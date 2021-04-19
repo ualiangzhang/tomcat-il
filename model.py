@@ -4,9 +4,10 @@ import torch.nn.functional as F
 
 
 class ToMnet(nn.Module):
-    def __init__(self, num_inputs=44, num_outputs=6, hidden_size=128):
+    def __init__(self, num_inputs=44, num_outputs=6, hidden_size=128, dropout=0.5):
         super(ToMnet, self).__init__()
         self.hidden_size = hidden_size
+        self.dropout = nn.Dropout(dropout)
 
         # char net settings
         self.char_embedding1 = nn.Linear(num_inputs, hidden_size)
@@ -64,7 +65,7 @@ class ToMnet(nn.Module):
         x = F.relu(self.prediction_bn(self.prediction_embedding1(x)))
         e_state = self.prediction_embedding2(x)
 
-        concatenated_state = torch.cat((e_char, e_mental, e_state), 1)
+        concatenated_state = self.dropout(torch.cat((e_char, e_mental, e_state), 1))
 
         x = F.relu(self.fe_bn1(self.feature_extractor1(concatenated_state)))
         x = F.relu(self.fe_bn2(self.feature_extractor2(x)))
