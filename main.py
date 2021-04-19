@@ -26,8 +26,12 @@ parser.add_argument('--load_model', type=str, default=None,
                     help='path to load the saved model')
 parser.add_argument('--learning_rate', type=float, default=1e-4,
                     help='learning rate of training (default: 1e-4)')
+parser.add_argument('--clipped_gradient', type=int, default=1,
+                    help='clipped gradient of the training (default: 1)')
+parser.add_argument('--reward_loss_weight', type=int, default=0.01,
+                    help='the weight of the reward loss during training (default: 0.01)')
 parser.add_argument('--total_epochs', type=int, default=100,
-                    help='total sample size to collect before PPO update (default: 2048)')
+                    help='total epochs to train the model (default: 100)')
 parser.add_argument('--batch_size', type=int, default=32,
                     help='batch size to update the model (default: 32)')
 parser.add_argument('--save_frequency', type=int, default=10,
@@ -112,6 +116,7 @@ def main():
 
     for epoch in range(args.total_epochs):
         start_time = time.time()
+        print('{} epochs training starts :: '.format(epoch + 1))
         pre_traj_batches, state_batches, action_labels, reward_labels, len_pre_traj = gen_training_batch(training_set,
                                                                                                          args.batch_size,
                                                                                                          demo_idx_list)
@@ -129,7 +134,7 @@ def main():
 
         print(
             '{} epochs :: training loss {:.2f} :: action top1 {:.2f} :: action top2 {:.2f}  :: action top3 {:.2f}  :: reward mse {:.2f}'.format(
-                epoch, training_loss, training_acc1, training_acc2, training_acc3, training_reward_loss))
+                epoch + 1, training_loss, training_acc1, training_acc2, training_acc3, training_reward_loss))
 
         eval_loss, eval_acc1, eval_acc2, eval_acc3, eval_reward_loss = evaluate(model, eval_state_batches,
                                                                                 eval_pre_traj_batches,
@@ -143,7 +148,11 @@ def main():
 
         print(
             '{} epochs :: eval loss {:.2f} :: action top1 {:.2f} :: action top2 {:.2f}  :: action top3 {:.2f}  :: reward mse {:.2f}'.format(
-                epoch, eval_loss, eval_acc1, eval_acc2, eval_acc3, eval_reward_loss))
+                epoch + 1, eval_loss, eval_acc1, eval_acc2, eval_acc3, eval_reward_loss))
+
+        print(
+            '{} epochs :: best action top1 {:.2f} :: best action top2 {:.2f}  :: best action top3 {:.2f}  :: best reward mse {:.2f}'.format(
+                epoch + 1, best_eval_acc1, best_eval_acc2, best_eval_acc3, best_eval_reward_loss))
 
         end_time = time.time()
 
@@ -203,8 +212,9 @@ def train(model, state_batches, pre_traj, past_traj, action_labels, reward_label
         action_loss = action_criterion(action_predictions, t_action_labels)
         reward_loss = reward_criterion(reward_predictions, t_reward_labels)
 
-        loss = action_loss + reward_loss
+        loss = action_loss + args.reward_loss_weight * reward_loss
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), args.clipped_gradient)
         optimizer.step()
 
         epoch_loss += loss.item()
