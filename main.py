@@ -102,7 +102,7 @@ def main():
     model = ToMnet().to(args.device)
 
     if args.load_model:
-        model.load_state_dict(torch.load(args.load_model))
+        model.load_state_dict(torch.load('saved_model/' + args.load_model))
 
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
     action_criterion = nn.CrossEntropyLoss()
@@ -160,23 +160,23 @@ def main():
 
         if eval_acc1 > best_eval_acc1:
             best_eval_acc1 = eval_acc1
-            torch.save(model.state_dict(), 'best-top1-model.pt')
+            torch.save(model.state_dict(), 'saved_model/best-top1-model-' + demos_name + '.pt')
 
         if eval_acc2 > best_eval_acc2:
             best_eval_acc2 = eval_acc2
-            torch.save(model.state_dict(), 'best-top2-model.pt')
+            torch.save(model.state_dict(), 'saved_model/best-top2-model-' + demos_name + '.pt')
 
         if eval_acc3 > best_eval_acc3:
             best_eval_acc3 = eval_acc3
-            torch.save(model.state_dict(), 'best-top3-model.pt')
+            torch.save(model.state_dict(), 'saved_model/best-top3-model-' + demos_name + '.pt')
 
         if eval_reward_loss < best_eval_reward_loss:
             best_eval_reward_loss = eval_reward_loss
-            torch.save(model.state_dict(), 'best-reward-model.pt')
+            torch.save(model.state_dict(), 'saved_model/best-reward-model-' + demos_name + '.pt')
 
         if eval_loss < best_eval_loss:
             best_eval_loss = eval_loss
-            torch.save(model.state_dict(), 'best-model.pt')
+            torch.save(model.state_dict(), 'saved_model/best-model-' + demos_name + '.pt')
 
         print(f'Epoch: {epoch + 1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
 
