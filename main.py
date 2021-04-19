@@ -120,7 +120,7 @@ def main():
 
     for epoch in range(args.total_epochs):
         start_time = time.time()
-        print('epoch {} training starts'.format(epoch + 1))
+        print('Epoch {} training starts'.format(epoch + 1))
         pre_traj_batches, state_batches, action_labels, reward_labels, len_pre_traj = gen_training_batch(training_set,
                                                                                                          args.batch_size,
                                                                                                          demo_idx_list)
