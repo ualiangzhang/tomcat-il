@@ -20,6 +20,7 @@ def gen_training_and_test_sets(demos, test_set_ratio=0.1):
     test_set_num = int(max(np.ceil(demos_len * test_set_ratio), 1))
     test_idx = np.sort(np.random.choice(range(demos_len), test_set_num, replace=False)).tolist()
     starting_idx = 0
+    training_idx = 0
     for idx in range(demos_len):
         if idx in test_idx:
             test_set['states'].append(demos['states'][idx])
@@ -29,8 +30,9 @@ def gen_training_and_test_sets(demos, test_set_ratio=0.1):
             training_set['states'].append(demos['states'][idx])
             training_set['actions'].append(demos['actions'][idx])
             training_set['rewards'].append(demos['rewards'][idx])
-            training_set_idx_list.append([idx, starting_idx, starting_idx + len(demos['states'][idx]) - 1])
+            training_set_idx_list.append([training_idx, starting_idx, starting_idx + len(demos['states'][idx]) - 1])
             starting_idx = starting_idx + len(demos['states'][idx])
+            training_idx += 1
 
     return training_set, test_set, training_set_idx_list, starting_idx
 
@@ -55,7 +57,7 @@ def gen_training_batch(training_set, batch_size, index_list):
     for oi in obs_index:
         for il in index_list:
             if il[1] <= oi <= il[2]:
-                if oi == 0:
+                if oi - il[1] == 0:
                     sa_pairs = np.zeros((1, obs_len + 1))
                     sub_pre_states_batch.append(sa_pairs)
                     sub_state_batch.append(training_set['states'][il[0]][0])
