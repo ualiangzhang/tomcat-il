@@ -32,8 +32,8 @@ parser.add_argument('--hidden_size', type=int, default=128,
                     help='hidden size of the model (default: 128)')
 parser.add_argument('--clipped_gradient', type=int, default=1,
                     help='clipped gradient of the training (default: 1)')
-parser.add_argument('--reward_loss_weight', type=int, default=0.1,
-                    help='the weight of the reward loss during training (default: 0.1)')
+parser.add_argument('--reward_loss_weight', type=int, default=100,
+                    help='the weight of the reward loss during training (default: 100)')
 parser.add_argument('--total_epochs', type=int, default=200,
                     help='total epochs to train the model (default: 200)')
 parser.add_argument('--batch_size', type=int, default=32,
@@ -137,7 +137,7 @@ def main():
                                                                                                  reward_criterion)
 
         print(
-            'training loss: {:.2f} | action top1: {:.2f} | action top2: {:.2f}  | action top3: {:.2f}  | reward mse: {:.2f}'.format(
+            'training loss: {:.2f} | action top1: {:.2f} | action top2: {:.2f}  | action top3: {:.2f}  | reward loss: {:.2f}'.format(
                 training_loss, training_acc1, training_acc2, training_acc3, training_reward_loss))
 
         eval_loss, eval_acc1, eval_acc2, eval_acc3, eval_reward_loss = evaluate(model, eval_state_batches,
