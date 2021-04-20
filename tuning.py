@@ -127,7 +127,7 @@ def objective(trial):
         if trial.should_prune():
             raise optuna.exceptions.TrialPruned()
 
-        return eval_acc1
+    return eval_acc1
 
 
 def train(model, state_batches, pre_traj, past_traj, action_labels, reward_labels, len_past_traj, len_pre_traj,
