@@ -26,14 +26,14 @@ parser.add_argument('--load_model', type=str, default=None,
                     help='path to load the saved model')
 parser.add_argument('--learning_rate', type=float, default=1e-4,
                     help='learning rate of training (default: 1e-4)')
-parser.add_argument('--dropout_rate', type=float, default=0.25,
+parser.add_argument('--dropout_rate', type=float, default=0.65,
                     help='dropout rate the model training (default: 0)')
 parser.add_argument('--hidden_size', type=int, default=128,
                     help='hidden size of the model (default: 128)')
 parser.add_argument('--clipped_gradient', type=int, default=1,
                     help='clipped gradient of the training (default: 1)')
-parser.add_argument('--reward_loss_weight', type=int, default=100,
-                    help='the weight of the reward loss during training (default: 100)')
+parser.add_argument('--reward_loss_weight', type=int, default=1000,
+                    help='the weight of the reward loss during training (default: 1000)')
 parser.add_argument('--total_epochs', type=int, default=200,
                     help='total epochs to train the model (default: 200)')
 parser.add_argument('--batch_size', type=int, default=32,
@@ -137,7 +137,7 @@ def main():
                                                                                                  reward_criterion)
 
         print(
-            'training loss: {:.2f} | action top1: {:.2f} | action top2: {:.2f}  | action top3: {:.2f}  | reward loss: {:.2f}'.format(
+            'training loss: {:.6f} | action top1: {:.6f} | action top2: {:.6f}  | action top3: {:.6f}  | reward loss: {:.6f}'.format(
                 training_loss, training_acc1, training_acc2, training_acc3, training_reward_loss))
 
         eval_loss, eval_acc1, eval_acc2, eval_acc3, eval_reward_loss = evaluate(model, eval_state_batches,
@@ -151,7 +151,7 @@ def main():
                                                                                 reward_criterion)
 
         print(
-            'eval loss {:.2f} | action top1: {:.2f} | action top2: {:.2f}  | action top3: {:.2f}  | reward mse: {:.2f}'.format(
+            'eval loss {:.6f} | action top1: {:.6f} | action top2: {:.6f}  | action top3: {:.6f}  | reward mse: {:.6f}'.format(
                 eval_loss, eval_acc1, eval_acc2, eval_acc3, eval_reward_loss))
 
         end_time = time.time()
@@ -179,7 +179,7 @@ def main():
             torch.save(model.state_dict(), 'saved_model/best-model-' + demos_name + '.pt')
 
         print(
-            'best action top1: {:.2f} | best action top2: {:.2f}  | best action top3: {:.2f}  | best reward mse: {:.2f}'.format(
+            'best action top1: {:.6f} | best action top2: {:.6f}  | best action top3: {:.6f}  | best reward mse: {:.6f}'.format(
                 best_eval_acc1, best_eval_acc2, best_eval_acc3, best_eval_reward_loss))
 
         print(f'Epoch: {epoch + 1} | Epoch Time: {epoch_mins}m {epoch_secs}s')
