@@ -242,7 +242,7 @@ if __name__ == "__main__":
     study = optuna.create_study(sampler=optuna.samplers.TPESampler(n_startup_trials=0, seed=args.seed),
                                 direction="maximize",
                                 pruner=optuna.pruners.MedianPruner())
-    study.optimize(objective, n_trials=1000)
+    study.optimize(objective, n_trials=1000, n_jobs=-1)
 
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
