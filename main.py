@@ -32,8 +32,8 @@ parser.add_argument('--hidden_size', type=int, default=128,
                     help='hidden size of the model (default: 128)')
 parser.add_argument('--clipped_gradient', type=int, default=1,
                     help='clipped gradient of the training (default: 1)')
-parser.add_argument('--reward_loss_weight', type=int, default=1000,
-                    help='the weight of the reward loss during training (default: 1000)')
+parser.add_argument('--reward_loss_weight', type=int, default=100,
+                    help='the weight of the reward loss during training (default: 100)')
 parser.add_argument('--total_epochs', type=int, default=200,
                     help='total epochs to train the model (default: 200)')
 parser.add_argument('--batch_size', type=int, default=32,
