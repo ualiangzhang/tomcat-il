@@ -32,8 +32,8 @@ parser.add_argument('--hidden_size', type=int, default=128,
                     help='hidden size of the model (default: 128)')
 parser.add_argument('--clipped_gradient', type=int, default=1,
                     help='clipped gradient of the training (default: 1)')
-parser.add_argument('--reward_loss_weight', type=int, default=0.01,
-                    help='the weight of the reward loss during training (default: 0.01)')
+parser.add_argument('--reward_loss_weight', type=int, default=0.1,
+                    help='the weight of the reward loss during training (default: 0.1)')
 parser.add_argument('--total_epochs', type=int, default=200,
                     help='total epochs to train the model (default: 200)')
 parser.add_argument('--batch_size', type=int, default=32,
@@ -201,13 +201,13 @@ def train(model, state_batches, pre_traj, past_traj, action_labels, reward_label
     model.train()
 
     for idx in range(len_batches):
-        t_past_traj_batches = torch.tensor(past_traj).to(args.device)
-        t_pre_traj_batches = torch.tensor(pre_traj[idx]).to(args.device)
-        t_state_batches = torch.tensor(state_batches[idx]).to(args.device)
+        t_past_traj_batches = torch.tensor(past_traj / 255).to(args.device)
+        t_pre_traj_batches = torch.tensor(pre_traj[idx] / 255).to(args.device)
+        t_state_batches = torch.tensor(state_batches[idx] / 255).to(args.device)
         t_len_past_traj = torch.tensor(len_past_traj).to(args.device)
         t_len_pre_traj = torch.tensor(len_pre_traj[idx]).to(args.device)
         t_action_labels = torch.LongTensor(action_labels[idx]).to(args.device)
-        t_reward_labels = torch.Tensor(reward_labels[idx]).to(args.device)
+        t_reward_labels = torch.Tensor(reward_labels[idx] / 1000).to(args.device)
 
         optimizer.zero_grad()
 
@@ -247,13 +247,13 @@ def evaluate(model, state_batches, pre_traj, past_traj, action_labels, reward_la
 
     with torch.no_grad():
         for idx in range(len_batches):
-            t_past_traj_batches = torch.tensor(past_traj).to(args.device)
-            t_pre_traj_batches = torch.tensor(pre_traj[idx]).to(args.device)
-            t_state_batches = torch.tensor(state_batches[idx]).to(args.device)
+            t_past_traj_batches = torch.tensor(past_traj / 255).to(args.device)
+            t_pre_traj_batches = torch.tensor(pre_traj[idx] / 255).to(args.device)
+            t_state_batches = torch.tensor(state_batches[idx] / 255).to(args.device)
             t_len_past_traj = torch.tensor(len_past_traj).to(args.device)
             t_len_pre_traj = torch.tensor(len_pre_traj[idx]).to(args.device)
             t_action_labels = torch.LongTensor(action_labels[idx]).to(args.device)
-            t_reward_labels = torch.Tensor(reward_labels[idx]).to(args.device)
+            t_reward_labels = torch.Tensor(reward_labels[idx] / 1000).to(args.device)
 
             action_predictions, reward_predictions = model(t_past_traj_batches, t_pre_traj_batches, t_state_batches,
                                                            t_len_past_traj, t_len_pre_traj)
@@ -261,10 +261,13 @@ def evaluate(model, state_batches, pre_traj, past_traj, action_labels, reward_la
             action_loss = action_criterion(action_predictions, t_action_labels)
             reward_loss = reward_criterion(reward_predictions, t_reward_labels)
 
-            loss = action_loss + reward_loss
+            real_reward_predictions = reward_predictions.to('cpu').numpy() * 1000
+            mse_reward = ((real_reward_predictions - reward_labels[idx]) ** 2).mean()
+
+            loss = action_loss + args.reward_loss_weight * reward_loss
 
             epoch_loss += loss.item()
-            epoch_reward_loss += reward_loss
+            epoch_reward_loss += mse_reward
             acc1, acc2, acc3 = action_accuracy(action_predictions, t_action_labels)
             epoch_action_acc1 += acc1
             epoch_action_acc2 += acc2
