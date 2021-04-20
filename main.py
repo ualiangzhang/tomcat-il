@@ -30,6 +30,8 @@ parser.add_argument('--dropout_rate', type=float, default=0.65,
                     help='dropout rate the model training (default: 0)')
 parser.add_argument('--hidden_size', type=int, default=128,
                     help='hidden size of the model (default: 128)')
+parser.add_argument('--without_charnet', type=bool, default=False,
+                    help='if containing char net in the model (default: False)')
 parser.add_argument('--clipped_gradient', type=int, default=1,
                     help='clipped gradient of the training (default: 1)')
 parser.add_argument('--reward_loss_weight', type=int, default=100,
@@ -103,7 +105,8 @@ def main():
         test_set, args.batch_size)
     past_traj, len_past_traj = gen_history_sequence(training_set)
 
-    model = ToMnet(hidden_size=args.hidden_size, dropout=args.dropout_rate).to(args.device)
+    model = ToMnet(hidden_size=args.hidden_size, dropout=args.dropout_rate, without_charnet=args.without_charnet).to(
+        args.device)
 
     if args.load_model:
         model.load_state_dict(torch.load('saved_model/' + args.load_model))

@@ -80,8 +80,9 @@ def objective(trial):
 
     hidden_size = trial.suggest_categorical("hidden_size", [8, 16, 32, 64, 128, 256])
     dropout_rate = trial.suggest_categorical("dropout_rate", [0, 0.2, 0.5, 0.8])
+    without_charnet = trial.suggest_categorical("without_charnet", [True, False])
 
-    model = ToMnet(hidden_size=hidden_size, dropout=dropout_rate).to(args.device)
+    model = ToMnet(hidden_size=hidden_size, dropout=dropout_rate, without_charnet=without_charnet).to(args.device)
 
     if args.load_model:
         model.load_state_dict(torch.load('saved_model/' + args.load_model))
