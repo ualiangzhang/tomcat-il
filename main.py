@@ -26,7 +26,7 @@ parser.add_argument('--load_model', type=str, default=None,
                     help='path to load the saved model')
 parser.add_argument('--learning_rate', type=float, default=1e-4,
                     help='learning rate of training (default: 1e-4)')
-parser.add_argument('--dropout_rate', type=float, default=0.65,
+parser.add_argument('--dropout_rate', type=float, default=0,
                     help='dropout rate the model training (default: 0)')
 parser.add_argument('--hidden_size', type=int, default=128,
                     help='hidden size of the model (default: 128)')
