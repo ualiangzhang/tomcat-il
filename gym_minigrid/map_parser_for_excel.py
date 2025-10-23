@@ -50,7 +50,8 @@ WORKBOOK_PATH = DATA_DIR / "asist_map.xlsx"
 SHEET_NAMES = ("SaturnA_2.3", "SaturnB_2.3")
 
 # Coordinate system (inclusive extents)
-TOP_LEFT: Tuple[int, int] = (-2226, -13)
+# Updated per request: top-left (-2225,-11), bottom-right (-2087,64)
+TOP_LEFT: Tuple[int, int] = (-2225, -11)
 BOTTOM_RIGHT: Tuple[int, int] = (-2087, 64)
 
 # Derived grid size (height x width)
@@ -72,10 +73,19 @@ GOAL_C = 83        # Victim C
 # Colors used in the Excel for wall identification via fill
 # These are common RGB hex strings (uppercase) for grey/brown families.
 GREY_HEXES: Iterable[str] = {
-    "FF808080", "FF7F7F7F", "FFC0C0C0", "FFBFBFBF", "FFB0B0B0"
+    "FF808080", "FF7F7F7F", "FFC0C0C0", "FFBFBFBF", "FFB0B0B0",
+    "FF999999", "FF666666", "FF4D4D4D", "FFD9D9D9"
 }
 BROWN_HEXES: Iterable[str] = {
-    "FFCBA986", "FFA8947D", "FF8B4513", "FFA0522D", "FFCD853F"
+    "FFCBA986", "FFA8947D", "FF8B4513", "FFA0522D", "FFCD853F",
+    "FF7B3F00", "FF5C4033", "FF6F4E37"
+}
+
+# Any non-white, non-empty fill should be considered as structure unless
+# explicitly mapped by a token; use this to catch additional wall colors.
+NON_WALL_EXCEPTIONS: Iterable[str] = {
+    # pure white and none
+    "FFFFFFFF", "FF000000", "00000000"
 }
 
 
@@ -118,7 +128,13 @@ def _is_wall_fill(cell: Cell) -> bool:
     argb = _color_to_argb(cell)
     if not argb:
         return False
-    return argb in GREY_HEXES or argb in BROWN_HEXES
+    if argb in GREY_HEXES or argb in BROWN_HEXES:
+        return True
+    # Heuristic: treat any non-white solid fill as wall when no explicit token
+    # overrides it. This covers cells like (C,11) and (AG,10).
+    if argb not in NON_WALL_EXCEPTIONS and argb.endswith("FFFF") is False:
+        return True
+    return False
 
 
 def _normalize_token(val: Optional[str]) -> str:
