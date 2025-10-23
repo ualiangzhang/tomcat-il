@@ -69,9 +69,10 @@ WALL = 4            # Default wall
 WALL_HEAVY = 30     # Heavy wall
 WALL_LIGHT = 31     # Light grey rubble wall
 LAVA = 9            # Hazard (red)
-BOX = 255           # Generic object (light brown)
+BOX = 255           # Generic object (lighter brown)
 BOX_LIGHT_BLUE = 11 # Light-blue plate (P)
 BOX_DARK_BLUE = 12  # Dark-blue object (D)
+BOX_RED = 13        # Red object if needed (not used for X)
 GOAL_A = 81         # Victim A (green)
 GOAL_B = 82         # Victim B (light green)
 GOAL_C = 83         # Victim C (yellow)
@@ -181,8 +182,8 @@ def symbol_to_minigrid(token: str) -> int:
         return GOAL_B
     if token == "C":
         return GOAL_C
-    if token in {"X"}:  # red hazard/collapse
-        return LAVA
+    if token in {"X"}:  # red collapse (render as red box rather than lava)
+        return BOX_RED
     if token == "D":  # falling rubble → dark blue box
         return BOX_DARK_BLUE
     if token == "T":  # freezing threat → treat as hazard
@@ -248,10 +249,12 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     for col in from_cells:
         try:
             ci = column_index_from_string(col)
-            cell = sheet.cell(row=11, column=ci)
-            argb = _color_to_argb(cell)
-            if argb:
-                ADDITIONAL_EMPTY_ARGB.add(argb)
+            # Mark row 11 and row 77 colors as empty
+            for rr in (11, 77):
+                cell = sheet.cell(row=rr, column=ci)
+                argb = _color_to_argb(cell)
+                if argb:
+                    ADDITIONAL_EMPTY_ARGB.add(argb)
         except Exception:
             pass
 
@@ -293,7 +296,7 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     raw_map_state[raw_map_state == GOAL_A] = EMPTY
     raw_map_state[raw_map_state == GOAL_B] = EMPTY
     raw_map_state[raw_map_state == GOAL_C] = EMPTY
-    raw_map_state[raw_map_state == LAVA] = WALL  # treat hazards as blocked in state
+    raw_map_state[raw_map_state == LAVA] = WALL  # keep generic hazards blocked if any
     raw_map_state[raw_map_state == WALL_HEAVY] = WALL
     raw_map_state[raw_map_state == WALL_LIGHT] = WALL
 

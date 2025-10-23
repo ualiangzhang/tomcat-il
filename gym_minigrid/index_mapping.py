@@ -225,6 +225,7 @@ INT_TO_OBJECT_numpymap = {
             255 :    'box',
             11  :    'box',
             12  :    'box',
+            13  :    'box',
         }
 
 OBJECT_TO_INT_numpymap = dict(zip(IDX_TO_OBJECT.values(), IDX_TO_OBJECT.keys()))
@@ -259,7 +260,7 @@ minigrid_index_mapping = {
             2   :    'inv_blue',
 
             30  :    'grey2',
-            31  :    'grey2',
+            31  :    'grey0',
 
             4   :    'inv_darkbrown', # 'grey',
             5   :    'yellow2',
@@ -269,9 +270,10 @@ minigrid_index_mapping = {
             82  :    'inv_green',        # B: green
             83  :    'inv_yellow',       # C: yellow
 
-            255 :    'darkbrown',
+            255 :    'brown',
             11  :    'blue2',
             12  :    'blue',
+            13  :    'inv_red',
 
         },
 
@@ -285,6 +287,7 @@ minigrid_index_mapping = {
             255 :    1,
             11  :    1,
             12  :    1,
+            13  :    1,
 
         },
 
