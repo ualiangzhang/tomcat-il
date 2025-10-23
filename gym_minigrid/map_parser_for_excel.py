@@ -99,11 +99,6 @@ NON_WALL_EXCEPTIONS: Iterable[str] = {
 # Dynamic exceptions collected from the sheet for cells that should be empty
 # even if they have a non-white fill (e.g., (AH,11), (BP,11), (CX,11)).
 ADDITIONAL_EMPTY_ARGB: set[str] = set()
-# RGB tuples (r,g,b) for approximate matching of empty colors
-ADDITIONAL_EMPTY_RGB: set[Tuple[int, int, int]] = set()
-# Some Excel files use theme/indexed colors. Capture a broader signature so
-# that visually identical colors can be matched even when ARGB is missing.
-ADDITIONAL_EMPTY_SIGNATURES: set[Tuple] = set()
 
 
 def _color_to_argb(cell: Cell) -> Optional[str]:
@@ -154,80 +149,6 @@ def _is_wall_fill(cell: Cell) -> bool:
         return True
     return False
 
-
-def _color_signature(cell: Cell) -> Tuple:
-    """Return a robust signature of the cell fill color.
-
-    Includes multiple fields so that theme/indexed colors match even if
-    ARGB is not provided by openpyxl.
-    """
-    fill = cell.fill
-    if fill is None or fill.patternType is None:
-        return (None,)
-    c = fill.start_color
-    # Collect multiple attributes where available
-    sig = (
-        getattr(c, "type", None),
-        getattr(c, "rgb", None),
-        getattr(c, "indexed", None),
-        getattr(c, "theme", None),
-        getattr(c, "tint", None),
-        getattr(fill, "patternType", None),
-    )
-    return sig
-
-
-def _rgb_from_argb(argb) -> Optional[Tuple[int, int, int]]:
-    try:
-        s = str(argb)
-    except Exception:
-        return None
-    if not s or len(s) not in (6, 8):
-        return None
-    hexstr = s[-6:]
-    try:
-        r = int(hexstr[0:2], 16)
-        g = int(hexstr[2:4], 16)
-        b = int(hexstr[4:6], 16)
-        return (r, g, b)
-    except Exception:
-        return None
-
-
-def _get_cell_rgb(cell: Cell) -> Optional[Tuple[int, int, int]]:
-    fill = cell.fill
-    if fill is None or fill.patternType is None:
-        return None
-    # Check both foreground(start) and background(end) colors
-    for c in (fill.start_color, getattr(fill, 'end_color', None)):
-        if c is None:
-            continue
-        if getattr(c, "rgb", None):
-            rgb = _rgb_from_argb(c.rgb)
-            if rgb:
-                return rgb
-        # Try theme color
-        theme = getattr(c, "theme", None)
-        if theme is not None:
-            # Theme 1 is typically white, but we still try
-            try:
-                # For theme colors, we need theme part; openpyxl doesn't always expose it
-                # As fallback, try to get from COLOR_INDEX if available
-                if hasattr(c, 'rgb'):
-                    rgb = _rgb_from_argb(c.rgb)
-                    if rgb:
-                        return rgb
-            except Exception:
-                pass
-        if getattr(c, "indexed", None) is not None:
-            try:
-                argb = COLOR_INDEX.get(c.indexed)
-                rgb = _rgb_from_argb(argb)
-                if rgb:
-                    return rgb
-            except Exception:
-                pass
-    return None
 
 def _normalize_token(val: Optional[str]) -> str:
     """Normalize cell textual content for symbol matching.
@@ -323,10 +244,19 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     sheet = wb[sheet_name]
 
     # Populate dynamic empty-color exceptions from designated cells
-    # Precompute which Excel columns should be forced empty
+    from_cells = ("AH", "BP", "CX")
     ADDITIONAL_EMPTY_ARGB.clear()
-    ADDITIONAL_EMPTY_SIGNATURES.clear()
-    ADDITIONAL_EMPTY_RGB.clear()
+    for col in from_cells:
+        try:
+            ci = column_index_from_string(col)
+            # Mark row 11 and row 77 colors as empty
+            for rr in (11, 77):
+                cell = sheet.cell(row=rr, column=ci)
+                argb = _color_to_argb(cell)
+                if argb:
+                    ADDITIONAL_EMPTY_ARGB.add(argb)
+        except Exception:
+            pass
 
     # Initialize grid (row-major: y, x)
     grid = np.zeros((GRID_HEIGHT, GRID_WIDTH), dtype=np.int32) + EMPTY
@@ -335,7 +265,6 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
 
     # Compute Excel end column for EK (use openpyxl translator)
     from openpyxl.utils import column_index_from_string
-    empty_columns = {column_index_from_string(col) for col in ("AH", "BP", "CX")}
     excel_end_col = column_index_from_string('EK')
     excel_rows = EXCEL_RANGE_END[0] - EXCEL_RANGE_START[0] + 1
     excel_cols = excel_end_col - EXCEL_RANGE_START[1] + 1
@@ -362,24 +291,10 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
             if val == EMPTY and _is_wall_fill(cell):
                 val = WALL
 
-            # Global empty-color override: force EMPTY if color matches
+            # Global empty-color override: any cell using one of these colors
+            # (sampled from AH11/BP11/CX11 and similar) is forced to EMPTY
             argb = _color_to_argb(cell)
-            rgb = _get_cell_rgb(cell)
-            approx_match = False
-            if rgb and ADDITIONAL_EMPTY_RGB:
-                for (sr, sg, sb) in ADDITIONAL_EMPTY_RGB:
-                    dr = rgb[0] - sr
-                    dg = rgb[1] - sg
-                    db = rgb[2] - sb
-                    if (dr*dr + dg*dg + db*db) <= 24*24:  # slightly larger tolerance
-                        approx_match = True
-                        if excel_r <= 15:  # debug first few rows
-                            print(f"DEBUG: {excel_r},{excel_c} RGB={rgb} matched {(sr,sg,sb)}")
-                        break
-            # Force EMPTY for AH, BP, CX columns (entire columns)
-            if excel_c in empty_columns:
-                val = EMPTY
-            elif (argb and argb in ADDITIONAL_EMPTY_ARGB) or (_color_signature(cell) in ADDITIONAL_EMPTY_SIGNATURES) or approx_match:
+            if argb and argb in ADDITIONAL_EMPTY_ARGB:
                 val = EMPTY
 
             # Explicit overrides: these Excel coordinates must be empty
