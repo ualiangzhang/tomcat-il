@@ -188,6 +188,10 @@ def _is_wall_fill(cell: Cell) -> bool:
     # Static palettes
     if (argb in GREY_HEXES) or (argb in BROWN_HEXES):
         return True
+    # Fuzzy RGB distance to capture slight theme/tint differences
+    rgb = _rgb_triplet(argb)
+    if rgb and any(_rgb_distance(rgb, ref) <= 48 for ref in ADDITIONAL_WALL_RGBS):
+        return True
     # Theme/indexed id match
     color = cell.fill.start_color if cell.fill else None
     if color is not None:
@@ -195,10 +199,6 @@ def _is_wall_fill(cell: Cell) -> bool:
             return True
         if getattr(color, "type", None) == "indexed" and getattr(color, "indexed", None) in ADDITIONAL_WALL_INDEXED_IDS:
             return True
-    # Fuzzy RGB distance to capture slight theme/tint differences
-    rgb = _rgb_triplet(argb)
-    if rgb and any(_rgb_distance(rgb, ref) <= 12 for ref in ADDITIONAL_WALL_RGBS):
-        return True
     return False
 
 
