@@ -28,7 +28,7 @@ non-obvious implementation details.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Dict, Iterable, Optional, Tuple, Any
 
 import numpy as np
 from openpyxl import load_workbook
@@ -97,8 +97,21 @@ NON_WALL_EXCEPTIONS: Iterable[str] = {
 }
 
 # Dynamic exceptions collected from the sheet for cells that should be empty
-# even if they have a non-white fill (e.g., (AH,11), (BP,11), (CX,11)).
+# even if they have a non-white fill. We track both ARGB strings and a more
+# robust color signature (type, rgb, indexed, theme, tint) to match theme/tinted
+# colors that may not share the exact RGB.
 ADDITIONAL_EMPTY_ARGB: set[str] = set()
+ADDITIONAL_EMPTY_SIGS: set[Tuple[Any, Any, Any, Any, Any]] = set()
+
+
+def _color_signature(cell: Cell) -> Optional[Tuple[Any, Any, Any, Any, Any]]:
+    fill = cell.fill
+    if fill is None or fill.patternType is None:
+        return None
+    color = fill.start_color
+    if color is None:
+        return None
+    return (getattr(color, "type", None), getattr(color, "rgb", None), getattr(color, "indexed", None), getattr(color, "theme", None), getattr(color, "tint", None))
 
 
 def _color_to_argb(cell: Cell) -> Optional[str]:
@@ -247,6 +260,7 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     # As requested: use colors from AT11, CB11, DJ11 as canonical EMPTY colors
     from_cells = ("AT", "CB", "DJ")
     ADDITIONAL_EMPTY_ARGB.clear()
+    ADDITIONAL_EMPTY_SIGS.clear()
     for col in from_cells:
         try:
             ci = column_index_from_string(col)
@@ -254,6 +268,9 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
             argb = _color_to_argb(cell)
             if argb:
                 ADDITIONAL_EMPTY_ARGB.add(argb)
+            sig = _color_signature(cell)
+            if sig:
+                ADDITIONAL_EMPTY_SIGS.add(sig)
         except Exception:
             pass
 
@@ -277,10 +294,11 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
             cell = sheet.cell(row=row_start + r, column=col_start + c)
             token = _normalize_token(cell.value)
 
-            # If the cell's fill color matches one of the canonical EMPTY colors,
-            # force EMPTY regardless of textual token.
+            # If the cell's fill color matches one of the canonical EMPTY colors
+            # (by ARGB or by color signature), force EMPTY regardless of token.
             argb = _color_to_argb(cell)
-            if argb and argb in ADDITIONAL_EMPTY_ARGB:
+            sig = _color_signature(cell)
+            if (argb and argb in ADDITIONAL_EMPTY_ARGB) or (sig and sig in ADDITIONAL_EMPTY_SIGS):
                 grid[r, c] = EMPTY
                 continue
 
