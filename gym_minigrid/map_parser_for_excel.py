@@ -286,13 +286,14 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     # Additionally: sample AG10 as a canonical WALL color and include it
     try:
         ag_col = column_index_from_string('AG')
-        cell = sheet.cell(row=10, column=ag_col)
-        argb = _color_to_argb(cell)
-        if argb:
-            ADDITIONAL_WALL_ARGB.add(argb)
-        sig = _color_signature(cell)
-        if sig:
-            ADDITIONAL_WALL_SIGS.add(sig)
+        for rr in (9, 10, 11, 12):
+            cell = sheet.cell(row=rr, column=ag_col)
+            argb = _color_to_argb(cell)
+            if argb:
+                ADDITIONAL_WALL_ARGB.add(argb)
+            sig = _color_signature(cell)
+            if sig:
+                ADDITIONAL_WALL_SIGS.add(sig)
     except Exception:
         pass
 
@@ -331,6 +332,17 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
             if val == EMPTY and _is_wall_fill(cell):
                 val = WALL
             grid[r, c] = val
+
+    # Explicitly enforce the provided world coordinate (-2195, -6) from AG10
+    # Map world (x,y) to array indices: col = x - TOP_LEFT[0], row = y - TOP_LEFT[1]
+    try:
+        enforce_x, enforce_y = -2195, -6
+        rr = enforce_y - TOP_LEFT[1]
+        cc = enforce_x - TOP_LEFT[0]
+        if 0 <= rr < GRID_HEIGHT and 0 <= cc < GRID_WIDTH:
+            grid[rr, cc] = WALL
+    except Exception:
+        pass
 
     # Add a solid wall border for safety (consistent with legacy behavior)
     grid[0, :] = WALL
