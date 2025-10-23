@@ -153,14 +153,10 @@ def _is_wall_fill(cell: Cell) -> bool:
     argb = _color_to_argb(cell)
     if not argb:
         return False
-    if argb in GREY_HEXES or argb in BROWN_HEXES:
-        return True
+    # Explicit wall palettes only
     if argb in ADDITIONAL_EMPTY_ARGB:
         return False
-    # Heuristic: treat any non-white solid fill as wall when no explicit token overrides it
-    if argb not in NON_WALL_EXCEPTIONS and argb.endswith("FFFF") is False:
-        return True
-    return False
+    return (argb in GREY_HEXES) or (argb in BROWN_HEXES)
 
 
 def _normalize_token(val: Optional[str]) -> str:
@@ -264,13 +260,15 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     for col in from_cells:
         try:
             ci = column_index_from_string(col)
-            cell = sheet.cell(row=11, column=ci)
-            argb = _color_to_argb(cell)
-            if argb:
-                ADDITIONAL_EMPTY_ARGB.add(argb)
-            sig = _color_signature(cell)
-            if sig:
-                ADDITIONAL_EMPTY_SIGS.add(sig)
+            # sample a few nearby rows to capture theme/tint variants
+            for rr in (11, 12, 10):
+                cell = sheet.cell(row=rr, column=ci)
+                argb = _color_to_argb(cell)
+                if argb:
+                    ADDITIONAL_EMPTY_ARGB.add(argb)
+                sig = _color_signature(cell)
+                if sig:
+                    ADDITIONAL_EMPTY_SIGS.add(sig)
         except Exception:
             pass
 
