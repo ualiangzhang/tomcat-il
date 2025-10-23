@@ -96,12 +96,8 @@ NON_WALL_EXCEPTIONS: Iterable[str] = {
     "FFFFFFFF", "FF000000", "00000000"
 }
 
-# Dynamic exceptions collected from the sheet for cells that should be empty
-# even if they have a non-white fill (e.g., (AH,11), (BP,11), (CX,11)).
-# We keep both ARGB strings and full color keys (type/indexed/theme/tint)
-# to robustly match colors defined via theme/indexed palettes.
+# Dynamic set of ARGB colors that should be treated as EMPTY across the whole map
 ADDITIONAL_EMPTY_ARGB: set[str] = set()
-ADDITIONAL_EMPTY_KEYS: set[tuple] = set()
 
 
 def _color_to_argb(cell: Cell) -> Optional[str]:
@@ -151,30 +147,6 @@ def _is_wall_fill(cell: Cell) -> bool:
     if argb not in NON_WALL_EXCEPTIONS and argb.endswith("FFFF") is False:
         return True
     return False
-
-
-def _color_key(cell: Cell) -> Optional[tuple]:
-    """Return a canonical color key for matching equality across theme/indexed/rgb.
-
-    The key includes: (type, rgb_upper, indexed, theme, tint). If the cell has
-    no fill, returns None.
-    """
-    fill = cell.fill
-    if fill is None or fill.patternType is None:
-        return None
-    c = fill.start_color
-    if c is None:
-        return None
-    rgb = getattr(c, 'rgb', None)
-    if isinstance(rgb, bytes):
-        try:
-            rgb = rgb.decode('utf-8')
-        except Exception:
-            rgb = None
-    if isinstance(rgb, str):
-        rgb = rgb.upper()
-    key = (getattr(c, 'type', None), rgb, getattr(c, 'indexed', None), getattr(c, 'theme', None), getattr(c, 'tint', None))
-    return key
 
 
 def _normalize_token(val: Optional[str]) -> str:
@@ -270,21 +242,17 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
         raise ValueError(f"Sheet '{sheet_name}' not found in {WORKBOOK_PATH}")
     sheet = wb[sheet_name]
 
-    # Populate dynamic empty-color exceptions from designated cells
+    # Populate dynamic empty-color exceptions from designated header cells
     from_cells = ("AH", "BP", "CX")
     ADDITIONAL_EMPTY_ARGB.clear()
-    ADDITIONAL_EMPTY_KEYS.clear()
     for col in from_cells:
         try:
             ci = column_index_from_string(col)
-            # Per requirement, only AH11/BP11/CX11 act as color exemplars for empty
+            # Read exemplar cells (row 11) to capture the ARGB for 'empty by color'
             cell = sheet.cell(row=11, column=ci)
             argb = _color_to_argb(cell)
             if argb:
                 ADDITIONAL_EMPTY_ARGB.add(argb)
-            key = _color_key(cell)
-            if key:
-                ADDITIONAL_EMPTY_KEYS.add(key)
         except Exception:
             pass
 
@@ -303,38 +271,21 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     h = min(GRID_HEIGHT, excel_rows)
     w = min(GRID_WIDTH, excel_cols)
 
-    # Precompute Excel column indices for explicit-empty cells
-    ah_col = column_index_from_string('AH')
-    bp_col = column_index_from_string('BP')
-    cx_col = column_index_from_string('CX')
-
     for r in range(h):
         for c in range(w):
-            excel_r = row_start + r
-            excel_c = col_start + c
-            cell = sheet.cell(row=excel_r, column=excel_c)
+            cell = sheet.cell(row=row_start + r, column=col_start + c)
             token = _normalize_token(cell.value)
 
-            # First, prefer explicit symbol; if not present, use fill color
+            # First, prefer explicit symbol; if not present, use color rules
             val = symbol_to_minigrid(token)
-            # If colored as wall, promote to wall (unless later overridden)
-            if val == EMPTY and _is_wall_fill(cell):
-                val = WALL
-
-            # Global empty-color override: any cell using one of these colors
-            # (sampled from AH11/BP11/CX11 and similar) is forced to EMPTY
-            # Match either by ARGB or by full color key (handles theme/indexed)
-            argb = _color_to_argb(cell)
-            if argb and argb in ADDITIONAL_EMPTY_ARGB:
-                val = EMPTY
-            else:
-                k = _color_key(cell)
-                if k and k in ADDITIONAL_EMPTY_KEYS:
+            if val == EMPTY:
+                argb = _color_to_argb(cell)
+                # If cell color is in the global empty-color set, force EMPTY
+                if argb and argb in ADDITIONAL_EMPTY_ARGB:
                     val = EMPTY
-
-            # Explicit overrides: these Excel coordinates must be empty
-            if excel_r == 11 and excel_c in (ah_col, bp_col, cx_col):
-                val = EMPTY
+                # Else if wall-like fill, map to WALL
+                elif _is_wall_fill(cell):
+                    val = WALL
             grid[r, c] = val
 
     # Add a solid wall border for safety (consistent with legacy behavior)
