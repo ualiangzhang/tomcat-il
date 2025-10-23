@@ -97,7 +97,7 @@ NON_WALL_EXCEPTIONS: Iterable[str] = {
 }
 
 # Dynamic exceptions collected from the sheet for cells that should be empty
-# even if they have a non-white fill.
+# even if they have a non-white fill (e.g., (AH,11), (BP,11), (CX,11)).
 ADDITIONAL_EMPTY_ARGB: set[str] = set()
 
 
@@ -244,17 +244,16 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     sheet = wb[sheet_name]
 
     # Populate dynamic empty-color exceptions from designated cells
-    from_cells = ("AH", "BP", "CX", "AT", "CB", "DJ")
+    # As requested: use colors from AT11, CB11, DJ11 as canonical EMPTY colors
+    from_cells = ("AT", "CB", "DJ")
     ADDITIONAL_EMPTY_ARGB.clear()
     for col in from_cells:
         try:
             ci = column_index_from_string(col)
-            # Mark row 11 and row 77 colors as empty
-            for rr in (11, 77):
-                cell = sheet.cell(row=rr, column=ci)
-                argb = _color_to_argb(cell)
-                if argb:
-                    ADDITIONAL_EMPTY_ARGB.add(argb)
+            cell = sheet.cell(row=11, column=ci)
+            argb = _color_to_argb(cell)
+            if argb:
+                ADDITIONAL_EMPTY_ARGB.add(argb)
         except Exception:
             pass
 
@@ -278,13 +277,16 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
             cell = sheet.cell(row=row_start + r, column=col_start + c)
             token = _normalize_token(cell.value)
 
-            # First, prefer explicit symbol; if not present, use fill color
-            val = symbol_to_minigrid(token)
-            # Force empty if cell color is in the empty-color set
+            # If the cell's fill color matches one of the canonical EMPTY colors,
+            # force EMPTY regardless of textual token.
             argb = _color_to_argb(cell)
-            if argb in ADDITIONAL_EMPTY_ARGB:
-                val = EMPTY
-            elif val == EMPTY and _is_wall_fill(cell):
+            if argb and argb in ADDITIONAL_EMPTY_ARGB:
+                grid[r, c] = EMPTY
+                continue
+
+            # Otherwise: prefer explicit symbol; if still empty, infer by fill
+            val = symbol_to_minigrid(token)
+            if val == EMPTY and _is_wall_fill(cell):
                 val = WALL
             grid[r, c] = val
 
