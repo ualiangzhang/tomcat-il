@@ -273,15 +273,26 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     h = min(GRID_HEIGHT, excel_rows)
     w = min(GRID_WIDTH, excel_cols)
 
+    # Precompute Excel column indices for explicit-empty cells
+    ah_col = column_index_from_string('AH')
+    bp_col = column_index_from_string('BP')
+    cx_col = column_index_from_string('CX')
+
     for r in range(h):
         for c in range(w):
-            cell = sheet.cell(row=row_start + r, column=col_start + c)
+            excel_r = row_start + r
+            excel_c = col_start + c
+            cell = sheet.cell(row=excel_r, column=excel_c)
             token = _normalize_token(cell.value)
 
             # First, prefer explicit symbol; if not present, use fill color
             val = symbol_to_minigrid(token)
             if val == EMPTY and _is_wall_fill(cell):
                 val = WALL
+
+            # Explicit overrides: these Excel coordinates must be empty
+            if excel_r == 11 and excel_c in (ah_col, bp_col, cx_col):
+                val = EMPTY
             grid[r, c] = val
 
     # Add a solid wall border for safety (consistent with legacy behavior)
