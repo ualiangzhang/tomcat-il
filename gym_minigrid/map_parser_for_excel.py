@@ -142,8 +142,6 @@ def _is_wall_fill(cell: Cell) -> bool:
         return False
     if argb in GREY_HEXES or argb in BROWN_HEXES:
         return True
-    if argb in ADDITIONAL_EMPTY_ARGB:
-        return False
     # Heuristic: treat any non-white solid fill as wall when no explicit token overrides it
     if argb not in NON_WALL_EXCEPTIONS and argb.endswith("FFFF") is False:
         return True
@@ -291,11 +289,7 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
             if val == EMPTY and _is_wall_fill(cell):
                 val = WALL
 
-            # Global empty-color override: any cell using one of these colors
-            # (sampled from AH11/BP11/CX11 and similar) is forced to EMPTY
-            argb = _color_to_argb(cell)
-            if argb and argb in ADDITIONAL_EMPTY_ARGB:
-                val = EMPTY
+            # Remove global empty-color override per requirement
 
             # Explicit overrides: these Excel coordinates must be empty
             if excel_r == 11 and excel_c in (ah_col, bp_col, cx_col):
