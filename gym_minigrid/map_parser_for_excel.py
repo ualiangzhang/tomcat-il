@@ -50,8 +50,11 @@ RESOURCES_DIR = (Path(__file__).parent / "./envs/resources").resolve()
 WORKBOOK_PATH = DATA_DIR / "asist_map.xlsx"
 SHEET_NAMES = ("SaturnA_2.3", "SaturnB_2.3")
 
-# Coordinate system (inclusive extents)
-# Updated per request: top-left (-2225,-11), bottom-right (-2087,64)
+# Coordinate system from Excel range C5:EK80 (1-based). We detect the
+# content origin, but for exact control we set explicit offsets:
+# C=3, row 5 → origin; EK is column 5*26+?; use openpyxl to compute.
+EXCEL_RANGE_START = (5, 3)   # (row, col) = (5, 'C')
+EXCEL_RANGE_END = (80, None) # end row; end col resolved per sheet
 TOP_LEFT: Tuple[int, int] = (-2225, -11)
 BOTTOM_RIGHT: Tuple[int, int] = (-2087, 64)
 
@@ -219,7 +222,8 @@ def find_content_origin(sheet) -> Tuple[int, int]:
         # Fallback to 1,1 if detection fails
         row_start = 1
         col_start = 1
-    return row_start, col_start
+    # Override by fixed range origin C5 if present
+    return EXCEL_RANGE_START[0], EXCEL_RANGE_START[1]
 
 
 def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
@@ -256,8 +260,18 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
 
     row_start, col_start = find_content_origin(sheet)
 
-    for r in range(GRID_HEIGHT):
-        for c in range(GRID_WIDTH):
+    # Compute Excel end column for EK (use openpyxl translator)
+    from openpyxl.utils import column_index_from_string
+    excel_end_col = column_index_from_string('EK')
+    excel_rows = EXCEL_RANGE_END[0] - EXCEL_RANGE_START[0] + 1
+    excel_cols = excel_end_col - EXCEL_RANGE_START[1] + 1
+
+    # Validate computed size matches grid size; if not, crop to min
+    h = min(GRID_HEIGHT, excel_rows)
+    w = min(GRID_WIDTH, excel_cols)
+
+    for r in range(h):
+        for c in range(w):
             cell = sheet.cell(row=row_start + r, column=col_start + c)
             token = _normalize_token(cell.value)
 
