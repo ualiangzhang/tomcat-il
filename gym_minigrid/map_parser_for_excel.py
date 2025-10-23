@@ -103,6 +103,10 @@ NON_WALL_EXCEPTIONS: Iterable[str] = {
 ADDITIONAL_EMPTY_ARGB: set[str] = set()
 ADDITIONAL_EMPTY_SIGS: set[Tuple[Any, Any, Any, Any, Any]] = set()
 
+# Dynamic additional wall colors (treated as walls across the sheet)
+ADDITIONAL_WALL_ARGB: set[str] = set()
+ADDITIONAL_WALL_SIGS: set[Tuple[Any, Any, Any, Any, Any]] = set()
+
 
 def _color_signature(cell: Cell) -> Optional[Tuple[Any, Any, Any, Any, Any]]:
     fill = cell.fill
@@ -153,10 +157,15 @@ def _is_wall_fill(cell: Cell) -> bool:
     argb = _color_to_argb(cell)
     if not argb:
         return False
-    # Explicit wall palettes only
+    # Explicit wall palettes only (respect EMPTY overrides first)
     if argb in ADDITIONAL_EMPTY_ARGB:
         return False
-    return (argb in GREY_HEXES) or (argb in BROWN_HEXES)
+    sig = _color_signature(cell)
+    if (argb in GREY_HEXES) or (argb in BROWN_HEXES):
+        return True
+    if (argb in ADDITIONAL_WALL_ARGB) or (sig and sig in ADDITIONAL_WALL_SIGS):
+        return True
+    return False
 
 
 def _normalize_token(val: Optional[str]) -> str:
@@ -257,6 +266,8 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     from_cells = ("AT", "CB", "DJ")
     ADDITIONAL_EMPTY_ARGB.clear()
     ADDITIONAL_EMPTY_SIGS.clear()
+    ADDITIONAL_WALL_ARGB.clear()
+    ADDITIONAL_WALL_SIGS.clear()
     for col in from_cells:
         try:
             ci = column_index_from_string(col)
@@ -271,6 +282,19 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
                     ADDITIONAL_EMPTY_SIGS.add(sig)
         except Exception:
             pass
+
+    # Additionally: sample AG10 as a canonical WALL color and include it
+    try:
+        ag_col = column_index_from_string('AG')
+        cell = sheet.cell(row=10, column=ag_col)
+        argb = _color_to_argb(cell)
+        if argb:
+            ADDITIONAL_WALL_ARGB.add(argb)
+        sig = _color_signature(cell)
+        if sig:
+            ADDITIONAL_WALL_SIGS.add(sig)
+    except Exception:
+        pass
 
     # Initialize grid (row-major: y, x)
     grid = np.zeros((GRID_HEIGHT, GRID_WIDTH), dtype=np.int32) + EMPTY
