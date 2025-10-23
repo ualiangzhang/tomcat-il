@@ -259,15 +259,15 @@ minigrid_index_mapping = {
             2   :    'inv_blue',
 
             30  :    'grey2',
-            31  :    'grey0',
+            31  :    'grey3',
 
             4   :    'inv_darkbrown', # 'grey',
             5   :    'yellow2',
 
             80  :    'inv_red',
-            81  :    'inv_indianyellow',
-            82  :    'inv_green2',
-            83  :    'inv_green',
+            81  :    'inv_green',        # A: green
+            82  :    'inv_green2',       # B: light green
+            83  :    'inv_indianyellow', # C: yellow
 
             255 :    'brown',
             11  :    'blue2',
