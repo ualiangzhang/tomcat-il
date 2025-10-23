@@ -198,15 +198,22 @@ def _get_cell_rgb(cell: Cell) -> Optional[Tuple[int, int, int]]:
     fill = cell.fill
     if fill is None or fill.patternType is None:
         return None
-    c = fill.start_color
-    if getattr(c, "rgb", None):
-        return _rgb_from_argb(c.rgb)
-    if getattr(c, "indexed", None) is not None:
-        try:
-            argb = COLOR_INDEX.get(c.indexed)
-            return _rgb_from_argb(argb)
-        except Exception:
-            return None
+    # Check both foreground(start) and background(end) colors
+    for c in (fill.start_color, getattr(fill, 'end_color', None)):
+        if c is None:
+            continue
+        if getattr(c, "rgb", None):
+            rgb = _rgb_from_argb(c.rgb)
+            if rgb:
+                return rgb
+        if getattr(c, "indexed", None) is not None:
+            try:
+                argb = COLOR_INDEX.get(c.indexed)
+                rgb = _rgb_from_argb(argb)
+                if rgb:
+                    return rgb
+            except Exception:
+                pass
     return None
 
 def _normalize_token(val: Optional[str]) -> str:
@@ -365,7 +372,7 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
                     dr = rgb[0] - sr
                     dg = rgb[1] - sg
                     db = rgb[2] - sb
-                    if (dr*dr + dg*dg + db*db) <= 12*12:  # small tolerance
+                    if (dr*dr + dg*dg + db*db) <= 24*24:  # slightly larger tolerance
                         approx_match = True
                         break
             if (argb and argb in ADDITIONAL_EMPTY_ARGB) or (_color_signature(cell) in ADDITIONAL_EMPTY_SIGNATURES) or approx_match:
