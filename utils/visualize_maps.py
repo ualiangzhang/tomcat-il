@@ -14,11 +14,17 @@ from __future__ import annotations
 
 from pathlib import Path
 import numpy as np
-from gym_minigrid.envs.numpymap import NumpyMap
+import importlib
 
 
 RESOURCES_DIR = (Path(__file__).parent.parent / "gym_minigrid" / "envs" / "resources").resolve()
 OUT_DIR = RESOURCES_DIR / "vis"
+
+
+def _import_numpymap():
+    # Import without pulling wrappers to avoid gym version issues
+    mod = importlib.import_module('gym_minigrid.envs.numpymap')
+    return getattr(mod, 'NumpyMap')
 
 
 def render_env_from_map(base_name: str, tile_size: int = 8) -> None:
@@ -34,8 +40,7 @@ def render_env_from_map(base_name: str, tile_size: int = 8) -> None:
     npy_path = RESOURCES_DIR / f"{base_name}.npy"
     numpy_array = np.load(npy_path)
 
-    # Instantiate the environment class directly to avoid importing
-    # gym wrappers that may not be compatible with local gym versions.
+    NumpyMap = _import_numpymap()
     # Place the agent at a valid inside-cell; (1,1) lies just inside the outer wall
     env = NumpyMap(numpy_array=numpy_array, agent_pos=(1, 1), agent_dir=0, max_steps=1_000)
     env.seed(0)
