@@ -210,6 +210,7 @@ INT_TO_OBJECT_numpymap = {
             2   :    'door',
 
             30  :    'wall',
+            31  :    'wall',
 
             4   :    'wall',
             5   :    'key',
@@ -222,6 +223,8 @@ INT_TO_OBJECT_numpymap = {
             9   :    'lava',
             10  :    'agent',
             255 :    'box',
+            11  :    'box',
+            12  :    'box',
         }
 
 OBJECT_TO_INT_numpymap = dict(zip(IDX_TO_OBJECT.values(), IDX_TO_OBJECT.keys()))
@@ -256,16 +259,19 @@ minigrid_index_mapping = {
             2   :    'inv_blue',
 
             30  :    'grey2',
+            31  :    'grey0',
 
             4   :    'inv_darkbrown', # 'grey',
             5   :    'yellow2',
 
             80  :    'inv_red',
-            81  :    'inv_indianyellow', # 'red', 
+            81  :    'inv_indianyellow',
             82  :    'inv_green2',
-            83  :    'inv_blue', # 'white',
+            83  :    'inv_green',
 
             255 :    'brown',
+            11  :    'blue2',
+            12  :    'blue',
 
         },
 
@@ -277,6 +283,8 @@ minigrid_index_mapping = {
             # 83  :    0, 
 
             255 :    1,
+            11  :    1,
+            12  :    1,
 
         },
 

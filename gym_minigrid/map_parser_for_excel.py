@@ -33,6 +33,7 @@ from typing import Dict, Iterable, Optional, Tuple
 import numpy as np
 from openpyxl import load_workbook
 from openpyxl.cell.cell import Cell
+from openpyxl.utils import column_index_from_string
 try:
     # Older/newer openpyxl versions expose COLOR_INDEX here; fallback to empty
     from openpyxl.styles.colors import COLOR_INDEX  # type: ignore
@@ -55,19 +56,22 @@ TOP_LEFT: Tuple[int, int] = (-2225, -11)
 BOTTOM_RIGHT: Tuple[int, int] = (-2087, 64)
 
 # Derived grid size (height x width)
-GRID_HEIGHT: int = BOTTOM_RIGHT[1] - TOP_LEFT[1] + 1  # 78
-GRID_WIDTH: int = BOTTOM_RIGHT[0] - TOP_LEFT[0] + 1   # 140
+GRID_HEIGHT: int = BOTTOM_RIGHT[1] - TOP_LEFT[1] + 1
+GRID_WIDTH: int = BOTTOM_RIGHT[0] - TOP_LEFT[0] + 1
 
 
 # MiniGrid integer IDs used in this repository (see gym_minigrid/index_mapping.py)
 EMPTY = 1
-WALL = 4           # Default wall
-WALL_HEAVY = 30    # Alternative wall id (rendered as wall)
-LAVA = 9           # Used for threats/hazards
-BOX = 255          # Generic interactable/plate/object
-GOAL_A = 81        # Victim A
-GOAL_B = 82        # Victim B
-GOAL_C = 83        # Victim C
+WALL = 4            # Default wall
+WALL_HEAVY = 30     # Heavy wall
+WALL_LIGHT = 31     # Light grey rubble wall
+LAVA = 9            # Hazard (red)
+BOX = 255           # Generic object (light brown)
+BOX_LIGHT_BLUE = 11 # Light-blue plate (P)
+BOX_DARK_BLUE = 12  # Dark-blue object (D)
+GOAL_A = 81         # Victim A (green)
+GOAL_B = 82         # Victim B (light green)
+GOAL_C = 83         # Victim C (yellow)
 
 
 # Colors used in the Excel for wall identification via fill
@@ -87,6 +91,10 @@ NON_WALL_EXCEPTIONS: Iterable[str] = {
     # pure white and none
     "FFFFFFFF", "FF000000", "00000000"
 }
+
+# Dynamic exceptions collected from the sheet for cells that should be empty
+# even if they have a non-white fill (e.g., (AH,11), (BP,11), (CX,11)).
+ADDITIONAL_EMPTY_ARGB: set[str] = set()
 
 
 def _color_to_argb(cell: Cell) -> Optional[str]:
@@ -130,8 +138,9 @@ def _is_wall_fill(cell: Cell) -> bool:
         return False
     if argb in GREY_HEXES or argb in BROWN_HEXES:
         return True
-    # Heuristic: treat any non-white solid fill as wall when no explicit token
-    # overrides it. This covers cells like (C,11) and (AG,10).
+    if argb in ADDITIONAL_EMPTY_ARGB:
+        return False
+    # Heuristic: treat any non-white solid fill as wall when no explicit token overrides it
     if argb not in NON_WALL_EXCEPTIONS and argb.endswith("FFFF") is False:
         return True
     return False
@@ -169,18 +178,18 @@ def symbol_to_minigrid(token: str) -> int:
         return GOAL_B
     if token == "C":
         return GOAL_C
-    if token in {"X"}:
+    if token in {"X"}:  # red hazard/collapse
         return LAVA
-    if token in {"D", "T"}:
+    if token == "D":  # falling rubble → dark blue box
+        return BOX_DARK_BLUE
+    if token == "T":  # freezing threat → treat as hazard
         return LAVA
-    if token in {"P", "F"}:
+    if token == "P":  # victim detection plate → light blue
+        return BOX_LIGHT_BLUE
+    if token == "F":  # object → light brown
         return BOX
-    if token == "RRR":
-        return WALL_HEAVY
-    if token == "RR":
-        return WALL_HEAVY
-    if token == "R":
-        return WALL
+    if token in {"RRR", "RR", "R"}:  # rubble → light grey wall
+        return WALL_LIGHT
     return EMPTY
 
 
@@ -229,6 +238,19 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
         raise ValueError(f"Sheet '{sheet_name}' not found in {WORKBOOK_PATH}")
     sheet = wb[sheet_name]
 
+    # Populate dynamic empty-color exceptions from designated cells
+    from_cells = ("AH", "BP", "CX")
+    ADDITIONAL_EMPTY_ARGB.clear()
+    for col in from_cells:
+        try:
+            ci = column_index_from_string(col)
+            cell = sheet.cell(row=11, column=ci)
+            argb = _color_to_argb(cell)
+            if argb:
+                ADDITIONAL_EMPTY_ARGB.add(argb)
+        except Exception:
+            pass
+
     # Initialize grid (row-major: y, x)
     grid = np.zeros((GRID_HEIGHT, GRID_WIDTH), dtype=np.int32) + EMPTY
 
@@ -259,6 +281,7 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     raw_map_state[raw_map_state == GOAL_C] = EMPTY
     raw_map_state[raw_map_state == LAVA] = WALL  # treat hazards as blocked in state
     raw_map_state[raw_map_state == WALL_HEAVY] = WALL
+    raw_map_state[raw_map_state == WALL_LIGHT] = WALL
 
     # Save outputs
     RESOURCES_DIR.mkdir(parents=True, exist_ok=True)
