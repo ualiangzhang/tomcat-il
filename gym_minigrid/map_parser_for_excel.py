@@ -99,6 +99,8 @@ NON_WALL_EXCEPTIONS: Iterable[str] = {
 # Dynamic exceptions collected from the sheet for cells that should be empty
 # even if they have a non-white fill (e.g., (AH,11), (BP,11), (CX,11)).
 ADDITIONAL_EMPTY_ARGB: set[str] = set()
+# RGB tuples (r,g,b) for approximate matching of empty colors
+ADDITIONAL_EMPTY_RGB: set[Tuple[int, int, int]] = set()
 # Some Excel files use theme/indexed colors. Capture a broader signature so
 # that visually identical colors can be matched even when ARGB is missing.
 ADDITIONAL_EMPTY_SIGNATURES: set[Tuple] = set()
@@ -174,6 +176,38 @@ def _color_signature(cell: Cell) -> Tuple:
     )
     return sig
 
+
+def _rgb_from_argb(argb) -> Optional[Tuple[int, int, int]]:
+    try:
+        s = str(argb)
+    except Exception:
+        return None
+    if not s or len(s) not in (6, 8):
+        return None
+    hexstr = s[-6:]
+    try:
+        r = int(hexstr[0:2], 16)
+        g = int(hexstr[2:4], 16)
+        b = int(hexstr[4:6], 16)
+        return (r, g, b)
+    except Exception:
+        return None
+
+
+def _get_cell_rgb(cell: Cell) -> Optional[Tuple[int, int, int]]:
+    fill = cell.fill
+    if fill is None or fill.patternType is None:
+        return None
+    c = fill.start_color
+    if getattr(c, "rgb", None):
+        return _rgb_from_argb(c.rgb)
+    if getattr(c, "indexed", None) is not None:
+        try:
+            argb = COLOR_INDEX.get(c.indexed)
+            return _rgb_from_argb(argb)
+        except Exception:
+            return None
+    return None
 
 def _normalize_token(val: Optional[str]) -> str:
     """Normalize cell textual content for symbol matching.
@@ -272,6 +306,7 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     from_cells = ("AH", "BP", "CX")
     ADDITIONAL_EMPTY_ARGB.clear()
     ADDITIONAL_EMPTY_SIGNATURES.clear()
+    ADDITIONAL_EMPTY_RGB.clear()
     for col in from_cells:
         try:
             ci = column_index_from_string(col)
@@ -282,6 +317,9 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
                 if argb:
                     ADDITIONAL_EMPTY_ARGB.add(argb)
                 ADDITIONAL_EMPTY_SIGNATURES.add(_color_signature(cell))
+                rgb = _get_cell_rgb(cell)
+                if rgb:
+                    ADDITIONAL_EMPTY_RGB.add(rgb)
         except Exception:
             pass
 
@@ -320,7 +358,17 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
 
             # Global empty-color override: force EMPTY if color matches
             argb = _color_to_argb(cell)
-            if (argb and argb in ADDITIONAL_EMPTY_ARGB) or (_color_signature(cell) in ADDITIONAL_EMPTY_SIGNATURES):
+            rgb = _get_cell_rgb(cell)
+            approx_match = False
+            if rgb and ADDITIONAL_EMPTY_RGB:
+                for (sr, sg, sb) in ADDITIONAL_EMPTY_RGB:
+                    dr = rgb[0] - sr
+                    dg = rgb[1] - sg
+                    db = rgb[2] - sb
+                    if (dr*dr + dg*dg + db*db) <= 12*12:  # small tolerance
+                        approx_match = True
+                        break
+            if (argb and argb in ADDITIONAL_EMPTY_ARGB) or (_color_signature(cell) in ADDITIONAL_EMPTY_SIGNATURES) or approx_match:
                 val = EMPTY
 
             # Explicit overrides: these Excel coordinates must be empty
