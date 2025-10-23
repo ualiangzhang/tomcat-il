@@ -206,6 +206,19 @@ def _get_cell_rgb(cell: Cell) -> Optional[Tuple[int, int, int]]:
             rgb = _rgb_from_argb(c.rgb)
             if rgb:
                 return rgb
+        # Try theme color
+        theme = getattr(c, "theme", None)
+        if theme is not None:
+            # Theme 1 is typically white, but we still try
+            try:
+                # For theme colors, we need theme part; openpyxl doesn't always expose it
+                # As fallback, try to get from COLOR_INDEX if available
+                if hasattr(c, 'rgb'):
+                    rgb = _rgb_from_argb(c.rgb)
+                    if rgb:
+                        return rgb
+            except Exception:
+                pass
         if getattr(c, "indexed", None) is not None:
             try:
                 argb = COLOR_INDEX.get(c.indexed)
@@ -310,25 +323,10 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     sheet = wb[sheet_name]
 
     # Populate dynamic empty-color exceptions from designated cells
-    from_cells = ("AH", "BP", "CX")
+    # Precompute which Excel columns should be forced empty
     ADDITIONAL_EMPTY_ARGB.clear()
     ADDITIONAL_EMPTY_SIGNATURES.clear()
     ADDITIONAL_EMPTY_RGB.clear()
-    for col in from_cells:
-        try:
-            ci = column_index_from_string(col)
-            # Collect example colors (rows 11 and 77 historically important)
-            for rr in (11, 77):
-                cell = sheet.cell(row=rr, column=ci)
-                argb = _color_to_argb(cell)
-                if argb:
-                    ADDITIONAL_EMPTY_ARGB.add(argb)
-                ADDITIONAL_EMPTY_SIGNATURES.add(_color_signature(cell))
-                rgb = _get_cell_rgb(cell)
-                if rgb:
-                    ADDITIONAL_EMPTY_RGB.add(rgb)
-        except Exception:
-            pass
 
     # Initialize grid (row-major: y, x)
     grid = np.zeros((GRID_HEIGHT, GRID_WIDTH), dtype=np.int32) + EMPTY
@@ -337,6 +335,7 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
 
     # Compute Excel end column for EK (use openpyxl translator)
     from openpyxl.utils import column_index_from_string
+    empty_columns = {column_index_from_string(col) for col in ("AH", "BP", "CX")}
     excel_end_col = column_index_from_string('EK')
     excel_rows = EXCEL_RANGE_END[0] - EXCEL_RANGE_START[0] + 1
     excel_cols = excel_end_col - EXCEL_RANGE_START[1] + 1
@@ -374,8 +373,13 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
                     db = rgb[2] - sb
                     if (dr*dr + dg*dg + db*db) <= 24*24:  # slightly larger tolerance
                         approx_match = True
+                        if excel_r <= 15:  # debug first few rows
+                            print(f"DEBUG: {excel_r},{excel_c} RGB={rgb} matched {(sr,sg,sb)}")
                         break
-            if (argb and argb in ADDITIONAL_EMPTY_ARGB) or (_color_signature(cell) in ADDITIONAL_EMPTY_SIGNATURES) or approx_match:
+            # Force EMPTY for AH, BP, CX columns (entire columns)
+            if excel_c in empty_columns:
+                val = EMPTY
+            elif (argb and argb in ADDITIONAL_EMPTY_ARGB) or (_color_signature(cell) in ADDITIONAL_EMPTY_SIGNATURES) or approx_match:
                 val = EMPTY
 
             # Explicit overrides: these Excel coordinates must be empty
