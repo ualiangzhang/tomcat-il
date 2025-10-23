@@ -28,7 +28,7 @@ non-obvious implementation details.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, Iterable, Optional, Tuple, Any
+from typing import Dict, Iterable, Optional, Tuple, Any, List
 
 import numpy as np
 from openpyxl import load_workbook
@@ -106,6 +106,7 @@ ADDITIONAL_EMPTY_SIGS: set[Tuple[Any, Any, Any, Any, Any]] = set()
 # Dynamic additional wall colors (treated as walls across the sheet)
 ADDITIONAL_WALL_ARGB: set[str] = set()
 ADDITIONAL_WALL_SIGS: set[Tuple[Any, Any, Any, Any, Any]] = set()
+ADDITIONAL_WALL_RGBS: List[Tuple[int, int, int]] = []
 
 
 def _color_signature(cell: Cell) -> Optional[Tuple[Any, Any, Any, Any, Any]]:
@@ -116,6 +117,24 @@ def _color_signature(cell: Cell) -> Optional[Tuple[Any, Any, Any, Any, Any]]:
     if color is None:
         return None
     return (getattr(color, "type", None), getattr(color, "rgb", None), getattr(color, "indexed", None), getattr(color, "theme", None), getattr(color, "tint", None))
+
+
+def _rgb_triplet(argb: Optional[str]) -> Optional[Tuple[int, int, int]]:
+    if not argb or len(argb) not in (6, 8):
+        return None
+    # Strip alpha if present (ARGB → RGB)
+    hexrgb = argb[-6:]
+    try:
+        r = int(hexrgb[0:2], 16)
+        g = int(hexrgb[2:4], 16)
+        b = int(hexrgb[4:6], 16)
+        return (r, g, b)
+    except Exception:
+        return None
+
+
+def _rgb_distance(c1: Tuple[int, int, int], c2: Tuple[int, int, int]) -> int:
+    return abs(c1[0]-c2[0]) + abs(c1[1]-c2[1]) + abs(c1[2]-c2[2])
 
 
 def _color_to_argb(cell: Cell) -> Optional[str]:
@@ -165,7 +184,13 @@ def _is_wall_fill(cell: Cell) -> bool:
     if (argb in ADDITIONAL_EMPTY_ARGB) or (sig and sig in ADDITIONAL_EMPTY_SIGS):
         return False
     # Static palettes
-    return (argb in GREY_HEXES) or (argb in BROWN_HEXES)
+    if (argb in GREY_HEXES) or (argb in BROWN_HEXES):
+        return True
+    # Fuzzy RGB distance to capture slight theme/tint differences
+    rgb = _rgb_triplet(argb)
+    if rgb and any(_rgb_distance(rgb, ref) <= 12 for ref in ADDITIONAL_WALL_RGBS):
+        return True
+    return False
 
 
 def _normalize_token(val: Optional[str]) -> str:
@@ -291,6 +316,9 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
             argb = _color_to_argb(cell)
             if argb:
                 ADDITIONAL_WALL_ARGB.add(argb)
+                rgb = _rgb_triplet(argb)
+                if rgb:
+                    ADDITIONAL_WALL_RGBS.append(rgb)
             sig = _color_signature(cell)
             if sig:
                 ADDITIONAL_WALL_SIGS.add(sig)
