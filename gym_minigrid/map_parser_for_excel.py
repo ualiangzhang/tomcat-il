@@ -98,7 +98,10 @@ NON_WALL_EXCEPTIONS: Iterable[str] = {
 
 # Dynamic exceptions collected from the sheet for cells that should be empty
 # even if they have a non-white fill (e.g., (AH,11), (BP,11), (CX,11)).
+# We keep both ARGB strings and full color keys (type/indexed/theme/tint)
+# to robustly match colors defined via theme/indexed palettes.
 ADDITIONAL_EMPTY_ARGB: set[str] = set()
+ADDITIONAL_EMPTY_KEYS: set[tuple] = set()
 
 
 def _color_to_argb(cell: Cell) -> Optional[str]:
@@ -142,10 +145,36 @@ def _is_wall_fill(cell: Cell) -> bool:
         return False
     if argb in GREY_HEXES or argb in BROWN_HEXES:
         return True
+    if argb in ADDITIONAL_EMPTY_ARGB:
+        return False
     # Heuristic: treat any non-white solid fill as wall when no explicit token overrides it
     if argb not in NON_WALL_EXCEPTIONS and argb.endswith("FFFF") is False:
         return True
     return False
+
+
+def _color_key(cell: Cell) -> Optional[tuple]:
+    """Return a canonical color key for matching equality across theme/indexed/rgb.
+
+    The key includes: (type, rgb_upper, indexed, theme, tint). If the cell has
+    no fill, returns None.
+    """
+    fill = cell.fill
+    if fill is None or fill.patternType is None:
+        return None
+    c = fill.start_color
+    if c is None:
+        return None
+    rgb = getattr(c, 'rgb', None)
+    if isinstance(rgb, bytes):
+        try:
+            rgb = rgb.decode('utf-8')
+        except Exception:
+            rgb = None
+    if isinstance(rgb, str):
+        rgb = rgb.upper()
+    key = (getattr(c, 'type', None), rgb, getattr(c, 'indexed', None), getattr(c, 'theme', None), getattr(c, 'tint', None))
+    return key
 
 
 def _normalize_token(val: Optional[str]) -> str:
@@ -244,15 +273,18 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     # Populate dynamic empty-color exceptions from designated cells
     from_cells = ("AH", "BP", "CX")
     ADDITIONAL_EMPTY_ARGB.clear()
+    ADDITIONAL_EMPTY_KEYS.clear()
     for col in from_cells:
         try:
             ci = column_index_from_string(col)
-            # Mark row 11 and row 77 colors as empty
-            for rr in (11, 77):
-                cell = sheet.cell(row=rr, column=ci)
-                argb = _color_to_argb(cell)
-                if argb:
-                    ADDITIONAL_EMPTY_ARGB.add(argb)
+            # Per requirement, only AH11/BP11/CX11 act as color exemplars for empty
+            cell = sheet.cell(row=11, column=ci)
+            argb = _color_to_argb(cell)
+            if argb:
+                ADDITIONAL_EMPTY_ARGB.add(argb)
+            key = _color_key(cell)
+            if key:
+                ADDITIONAL_EMPTY_KEYS.add(key)
         except Exception:
             pass
 
@@ -289,7 +321,16 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
             if val == EMPTY and _is_wall_fill(cell):
                 val = WALL
 
-            # Remove global empty-color override per requirement
+            # Global empty-color override: any cell using one of these colors
+            # (sampled from AH11/BP11/CX11 and similar) is forced to EMPTY
+            # Match either by ARGB or by full color key (handles theme/indexed)
+            argb = _color_to_argb(cell)
+            if argb and argb in ADDITIONAL_EMPTY_ARGB:
+                val = EMPTY
+            else:
+                k = _color_key(cell)
+                if k and k in ADDITIONAL_EMPTY_KEYS:
+                    val = EMPTY
 
             # Explicit overrides: these Excel coordinates must be empty
             if excel_r == 11 and excel_c in (ah_col, bp_col, cx_col):
