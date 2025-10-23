@@ -107,6 +107,8 @@ ADDITIONAL_EMPTY_SIGS: set[Tuple[Any, Any, Any, Any, Any]] = set()
 ADDITIONAL_WALL_ARGB: set[str] = set()
 ADDITIONAL_WALL_SIGS: set[Tuple[Any, Any, Any, Any, Any]] = set()
 ADDITIONAL_WALL_RGBS: List[Tuple[int, int, int]] = []
+ADDITIONAL_WALL_THEME_IDS: set[int] = set()
+ADDITIONAL_WALL_INDEXED_IDS: set[int] = set()
 
 
 def _color_signature(cell: Cell) -> Optional[Tuple[Any, Any, Any, Any, Any]]:
@@ -186,6 +188,13 @@ def _is_wall_fill(cell: Cell) -> bool:
     # Static palettes
     if (argb in GREY_HEXES) or (argb in BROWN_HEXES):
         return True
+    # Theme/indexed id match
+    color = cell.fill.start_color if cell.fill else None
+    if color is not None:
+        if getattr(color, "type", None) == "theme" and getattr(color, "theme", None) in ADDITIONAL_WALL_THEME_IDS:
+            return True
+        if getattr(color, "type", None) == "indexed" and getattr(color, "indexed", None) in ADDITIONAL_WALL_INDEXED_IDS:
+            return True
     # Fuzzy RGB distance to capture slight theme/tint differences
     rgb = _rgb_triplet(argb)
     if rgb and any(_rgb_distance(rgb, ref) <= 12 for ref in ADDITIONAL_WALL_RGBS):
@@ -293,6 +302,8 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
     ADDITIONAL_EMPTY_SIGS.clear()
     ADDITIONAL_WALL_ARGB.clear()
     ADDITIONAL_WALL_SIGS.clear()
+    ADDITIONAL_WALL_THEME_IDS.clear()
+    ADDITIONAL_WALL_INDEXED_IDS.clear()
     for col in from_cells:
         try:
             ci = column_index_from_string(col)
@@ -322,6 +333,12 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
             sig = _color_signature(cell)
             if sig:
                 ADDITIONAL_WALL_SIGS.add(sig)
+            color = cell.fill.start_color if cell.fill else None
+            if color is not None:
+                if getattr(color, "type", None) == "theme" and getattr(color, "theme", None) is not None:
+                    ADDITIONAL_WALL_THEME_IDS.add(getattr(color, "theme", None))
+                if getattr(color, "type", None) == "indexed" and getattr(color, "indexed", None) is not None:
+                    ADDITIONAL_WALL_INDEXED_IDS.add(getattr(color, "indexed", None))
     except Exception:
         pass
 
