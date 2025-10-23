@@ -157,15 +157,15 @@ def _is_wall_fill(cell: Cell) -> bool:
     argb = _color_to_argb(cell)
     if not argb:
         return False
-    # Explicit wall palettes only (respect EMPTY overrides first)
-    if argb in ADDITIONAL_EMPTY_ARGB:
-        return False
+    # Dynamic WALL has highest priority
     sig = _color_signature(cell)
-    if (argb in GREY_HEXES) or (argb in BROWN_HEXES):
-        return True
     if (argb in ADDITIONAL_WALL_ARGB) or (sig and sig in ADDITIONAL_WALL_SIGS):
         return True
-    return False
+    # Dynamic EMPTY has next priority (prevent palette-based wall)
+    if (argb in ADDITIONAL_EMPTY_ARGB) or (sig and sig in ADDITIONAL_EMPTY_SIGS):
+        return False
+    # Static palettes
+    return (argb in GREY_HEXES) or (argb in BROWN_HEXES)
 
 
 def _normalize_token(val: Optional[str]) -> str:
@@ -316,11 +316,13 @@ def parse_saturn_sheet(sheet_name: str, save_basename: str) -> None:
             cell = sheet.cell(row=row_start + r, column=col_start + c)
             token = _normalize_token(cell.value)
 
-            # If the cell's fill color matches one of the canonical EMPTY colors
-            # (by ARGB or by color signature), force EMPTY regardless of token.
+            # First, handle dynamic WALL/EMPTY overrides by color
             argb = _color_to_argb(cell)
             sig = _color_signature(cell)
-            if (argb and argb in ADDITIONAL_EMPTY_ARGB) or (sig and sig in ADDITIONAL_EMPTY_SIGS):
+            if (argb in ADDITIONAL_WALL_ARGB) or (sig and sig in ADDITIONAL_WALL_SIGS):
+                grid[r, c] = WALL
+                continue
+            if (argb in ADDITIONAL_EMPTY_ARGB) or (sig and sig in ADDITIONAL_EMPTY_SIGS):
                 grid[r, c] = EMPTY
                 continue
 
